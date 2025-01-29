@@ -24,16 +24,16 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O1 -fno-tree-vectorize")
 set(CMAKE_BUILD_TYPE Debug)
 # set(CMAKE_BUILD_TYPE Release)
 
-if(EXISTS "/etc/nv_tegra_release")
-  # The CC list for Tegras and Jetson will require manual updates
-  set(CMAKE_CUDA_ARCHITECTURES "53;62;72;87"
-      CACHE
-      STRING "Which CUDA CCs to support? Explicit numbers, defaults fail for Tegras")
+#
+# If this is a Tegra or something similar, set our processor subrevision.
+# On Mac, CMake adds arch flags by itself.
+#
+if(CMAKE_C_COMPILER_ID STREQUAL GNU)
+  if(EXISTS "/etc/nv_tegra_release")
+    add_compile_options(-march=armv8.2-a)
+  endif()
 else()
-  # The CC list for discrete GPUs will require CMake updates
-  set(CMAKE_CUDA_ARCHITECTURES "all-major"
-      CACHE
-      STRING "Which CUDA CCs to support: native, all, all-major or an explicit list delimited by semicolons")
+  message(FATAL "Not compiling with an gcc")
 endif()
 
 # This march option works with GCC but apparently not with the CUDA compiler on Tegra
