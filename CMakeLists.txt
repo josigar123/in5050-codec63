@@ -28,8 +28,12 @@ set(CMAKE_BUILD_TYPE Debug)
 # If this is a Tegra or something similar, set our processor subrevision.
 # On Mac, CMake adds arch flags by itself.
 #
-if(EXISTS "/etc/nv_tegra_release")
+if(CMAKE_C_COMPILER_ID STREQUAL GNU)
+  if(EXISTS "/etc/nv_tegra_release")
     add_compile_options(-march=armv8.2-a)
+  endif()
+else()
+  message(FATAL "Not compiling with an gcc")
 endif()
 
 add_library(c63
