@@ -1,0 +1,1 @@
+/usr/bin/g++  CMakeFiles/c63pred.dir/c63dec.cu.o -o c63pred  libc63.a -lm  -L"/usr/local/cuda-11.4/targets/aarch64-linux/lib/stubs" -L"/usr/local/cuda-11.4/targets/aarch64-linux/lib" -lcudadevrt -lcudart_static -lrt -lpthread -ldl
