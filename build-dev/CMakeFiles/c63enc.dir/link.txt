@@ -1,0 +1,1 @@
+/usr/bin/g++  CMakeFiles/c63enc.dir/c63enc.cu.o CMakeFiles/c63enc.dir/c63_write.cu.o -o c63enc  libc63.a -lm  -L"/usr/local/cuda-11.4/targets/aarch64-linux/lib/stubs" -L"/usr/local/cuda-11.4/targets/aarch64-linux/lib" -lcudadevrt -lcudart_static -lrt -lpthread -ldl
