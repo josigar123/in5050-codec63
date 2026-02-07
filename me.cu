@@ -1,16 +1,12 @@
 #include <assert.h>
-#include <errno.h>
 #include <getopt.h>
-#include <inttypes.h>
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "me.h"
-#include "tables.h"
 
 /*
 block1 and block2 points to the beginning of a 8x8 block in the entire frame.
