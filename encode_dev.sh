@@ -6,7 +6,7 @@ set -e
 
 # Variables
 BUILD_DIR="build-dev"
-INPUT_VIDEO="foreman.yuv"
+INPUT_VIDEO="/mnt/sdcard/cipr/foreman.yuv"
 OUTPUT_FILE="foremanout-dev.c63"
 WIDTH=352
 HEIGHT=288
