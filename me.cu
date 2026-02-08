@@ -133,7 +133,8 @@ void c63_motion_estimate(struct c63_common *cm) {
   int mb_x, mb_y;
 
   /* Luma */
-  /* For each macroblock in the luma frame estimate the motion vector*/
+  /* For each macroblock in the luma frame estimate the motion vector from the
+   * reconstructed reference frame (after iDCT/iQuant)*/
   for (mb_y = 0; mb_y < cm->mb_rows; ++mb_y) {
     for (mb_x = 0; mb_x < cm->mb_cols; ++mb_x) {
       me_block_8x8(cm, mb_x, mb_y, cm->curframe->orig->Y,
