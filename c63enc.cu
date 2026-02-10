@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <cuda_runtime.h>
+
 #include "c63.h"
 #include "c63_write.h"
 #include "common.h"
@@ -29,23 +31,30 @@ extern char *optarg;
 /* Read planar YUV frames with 4:2:0 chroma sub-sampling */
 static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
   size_t len = 0;
-  yuv_t *image = (yuv_t *)malloc(sizeof(*image));
+  yuv_t *image;
+  cudaMallocManaged(&image, sizeof(yuv_t));
 
   /* Read Y. The size of Y is the same as the size of the image. The indices
      represents the color component (0 is Y, 1 is U, and 2 is V) */
-  image->Y =
-      (uint8_t *)calloc(1, cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT]);
+  cudaMallocManaged(&image->Y, cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] *
+                                   sizeof(uint8_t));
+  cudaMemset(image->Y, 0,
+             cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t));
   len += fread(image->Y, 1, width * height, file);
 
   /* Read U. Given 4:2:0 chroma sub-sampling, the size is 1/4 of Y
      because (height/2)*(width/2) = (height*width)/4. */
-  image->U =
-      (uint8_t *)calloc(1, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT]);
+  cudaMallocManaged(&image->U, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] *
+                                   sizeof(uint8_t));
+  cudaMemset(image->U, 0,
+             cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t));
   len += fread(image->U, 1, (width * height) / 4, file);
 
   /* Read V. Given 4:2:0 chroma sub-sampling, the size is 1/4 of Y. */
-  image->V =
-      (uint8_t *)calloc(1, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT]);
+  cudaMallocManaged(&image->V, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] *
+                                   sizeof(uint8_t));
+  cudaMemset(image->V, 0,
+             cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t));
   len += fread(image->V, 1, (width * height) / 4, file);
 
   if (ferror(file)) {
@@ -54,20 +63,20 @@ static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
   }
 
   if (feof(file)) {
-    free(image->Y);
-    free(image->U);
-    free(image->V);
-    free(image);
+    cudaFree(image->Y);
+    cudaFree(image->U);
+    cudaFree(image->V);
+    cudaFree(image);
 
     return NULL;
   } else if (len != width * height * 1.5) {
     fprintf(stderr, "Reached end of file, but incorrect bytes read.\n");
     fprintf(stderr, "Wrong input? (height: %d width: %d)\n", height, width);
 
-    free(image->Y);
-    free(image->U);
-    free(image->V);
-    free(image);
+    cudaFree(image->Y);
+    cudaFree(image->U);
+    cudaFree(image->V);
+    cudaFree(image);
 
     return NULL;
   }
@@ -136,7 +145,9 @@ struct c63_common *init_c63_enc(int width, int height) {
   int i;
 
   /* calloc() sets allocated memory to zero */
-  c63_common *cm = (c63_common *)calloc(1, sizeof(struct c63_common));
+  c63_common *cm;
+  cudaMallocManaged(&cm, sizeof(struct c63_common));
+  cudaMemset(cm, 0, sizeof(struct c63_common));
 
   cm->width = width;
   cm->height = height;
@@ -174,7 +185,7 @@ struct c63_common *init_c63_enc(int width, int height) {
 
 void free_c63_enc(struct c63_common *cm) {
   destroy_frame(cm->curframe);
-  free(cm);
+  cudaFree(cm);
 }
 
 static void print_help() {
@@ -258,10 +269,10 @@ int main(int argc, char **argv) {
     printf("Encoding frame %d, ", numframes);
     c63_encode_image(cm, image);
 
-    free(image->Y);
-    free(image->U);
-    free(image->V);
-    free(image);
+    cudaFree(image->Y);
+    cudaFree(image->U);
+    cudaFree(image->V);
+    cudaFree(image);
 
     printf("Done!\n");
 

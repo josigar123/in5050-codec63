@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <nvtx3/nvToolsExt.h>
+
 #include "me.h"
 
 /*
@@ -17,6 +19,7 @@ index the columns of the current row.
 */
 static void sad_block_8x8(uint8_t *block1, uint8_t *block2, int stride,
                           int *result) {
+
   int u, v;
 
   *result = 0;
@@ -128,6 +131,7 @@ static void me_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
 }
 
 void c63_motion_estimate(struct c63_common *cm) {
+  nvtxRangePushA("c63_motion_estimate");
   /* Compare this frame with previous reconstructed frame (e.g the reference
    * frame)*/
   int mb_x, mb_y;
@@ -153,6 +157,7 @@ void c63_motion_estimate(struct c63_common *cm) {
                    cm->refframe->recons->V, V_COMPONENT);
     }
   }
+  nvtxRangePop();
 }
 
 // DANGER: Is also used by the decoder
@@ -202,6 +207,7 @@ static void mc_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
 */
 // DANGER: Is also used by the decoder
 void c63_motion_compensate(struct c63_common *cm) {
+  nvtxRangePushA("c63_motion_compensate");
   int mb_x, mb_y;
 
   /* Luma */
@@ -221,4 +227,5 @@ void c63_motion_compensate(struct c63_common *cm) {
                    cm->refframe->recons->V, V_COMPONENT);
     }
   }
+  nvtxRangePop();
 }
