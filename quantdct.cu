@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <nvtx3/nvToolsExt.h>
+
 #include "tables.h"
 
 #define ISQRT2 0.70710678118654f
@@ -41,6 +43,7 @@ static void dct_2d(const float *in, float *out) {
 }
 
 // Same as dct_2d, but reverse lookup, same optimization could work
+// DANGER: Also used by the decoder
 static void idct_2d(const float *in, float *out) {
   // Loop through all elements of the block
   for (int v = 0; v < 8; v++) {
@@ -102,6 +105,7 @@ static void quantize_block(float *in_data, float *out_data,
   reconstructed lossy dct coefficient block, same logic as quantize_block but
   reverse
 */
+// DANGER: Also used by the decoder
 static void dequantize_block(float *in_data, float *out_data,
                              uint8_t *quant_tbl) {
   int zigzag;
@@ -146,6 +150,7 @@ static void dct_quant_block_8x8(int16_t *in_data, int16_t *out_data,
 
  OPTIMIZATION?: Same as above
 */
+// DANGER: Also used by the decoder
 static void dequant_idct_block_8x8(int16_t *in_data, int16_t *out_data,
                                    uint8_t *quant_tbl) {
   float mb[8 * 8] __attribute((aligned(16)));
@@ -169,6 +174,7 @@ static void dequant_idct_block_8x8(int16_t *in_data, int16_t *out_data,
 
  in_data is the DCT + quantized rows of the residual frame
 */
+// DANGER: Also used by the decoder
 static void dequantize_idct_row(int16_t *in_data, uint8_t *prediction, int w,
                                 int h, int y, uint8_t *out_data,
                                 uint8_t *quantization) {
@@ -240,9 +246,11 @@ static void dct_quantize_row(uint8_t *in_data, uint8_t *prediction, int w,
   }
 }
 
+// DANGER: Also used by the decoder
 void dequantize_idct(int16_t *in_data, uint8_t *prediction, uint32_t width,
                      uint32_t height, uint8_t *out_data,
                      uint8_t *quantization) {
+  nvtxRangePushA("dequantize_idct");
   int y;
 
   // Dequantize all rows of the residual frame moving vertically, reconstructing
@@ -251,10 +259,12 @@ void dequantize_idct(int16_t *in_data, uint8_t *prediction, uint32_t width,
     dequantize_idct_row(in_data + y * width, prediction + y * width, width,
                         height, y, out_data + y * width, quantization);
   }
+  nvtxRangePop();
 }
 
 void dct_quantize(uint8_t *in_data, uint8_t *prediction, uint32_t width,
                   uint32_t height, int16_t *out_data, uint8_t *quantization) {
+  nvtxRangePushA("dct_quantize");
   int y;
 
   // Quantize all rows of the frame moving vertically
@@ -262,4 +272,5 @@ void dct_quantize(uint8_t *in_data, uint8_t *prediction, uint32_t width,
     dct_quantize_row(in_data + y * width, prediction + y * width, width, height,
                      out_data + y * width, quantization);
   }
+  nvtxRangePop();
 }
