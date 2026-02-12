@@ -43,7 +43,6 @@ __device__ __forceinline__ static void sad_block_8x8(const uint8_t *block1,
 __global__ static void me_block_8x8(const uint8_t *orig, const uint8_t *ref,
                                     struct macroblock *mbs, int mb_cols,
                                     int mb_rows, int w, int h, int range) {
-
   // Map 1D thread index to 2D macroblock row-major matrix index
   int tid = blockIdx.x * blockDim.x + threadIdx.x;
   int num_mbs = mb_cols * mb_rows;
@@ -123,11 +122,14 @@ __global__ static void me_block_8x8(const uint8_t *orig, const uint8_t *ref,
 void c63_motion_estimate(struct c63_common *cm) {
   nvtxRangePushA("c63_motion_estimate");
 
+  // Kernel launch params
   size_t threads_per_block = 64;
+
   size_t num_mbs_Y = cm->mb_rows * cm->mb_cols;
+  size_t num_mbs_C = cm->mb_rows / 2 * cm->mb_cols / 2;
+
   size_t blocks_Y = (num_mbs_Y + threads_per_block - 1) / threads_per_block;
-  size_t num_mbs_U_V = cm->mb_rows / 2 * cm->mb_cols / 2;
-  size_t blocks_U_V = (num_mbs_U_V + threads_per_block - 1) / threads_per_block;
+  size_t blocks_C = (num_mbs_C + threads_per_block - 1) / threads_per_block;
 
   // Read necessary data from cm
   uint8_t *orig_Y = cm->curframe->orig->Y;
@@ -165,42 +167,35 @@ void c63_motion_estimate(struct c63_common *cm) {
    * reconstructed reference frame (after iDCT/iQuant)*/
   me_block_8x8<<<blocks_Y, threads_per_block, shared_mem_size>>>(
       orig_Y, recons_Y, mbs_Y, mb_cols_Y, mb_rows_Y, w_Y, h_Y, range_Y);
-  me_block_8x8<<<blocks_U_V, threads_per_block, shared_mem_size>>>(
+  me_block_8x8<<<blocks_C, threads_per_block, shared_mem_size>>>(
       orig_U, recons_U, mbs_U, mb_cols_C, mb_rows_C, w_U, h_U, range_C);
-  me_block_8x8<<<blocks_U_V, threads_per_block, shared_mem_size>>>(
+  me_block_8x8<<<blocks_C, threads_per_block, shared_mem_size>>>(
       orig_V, recons_V, mbs_V, mb_cols_C, mb_rows_C, w_V, h_V, range_C);
-
   cudaDeviceSynchronize();
   nvtxRangePop();
 }
 
 // DANGER: Is also used by the decoder
 /* Motion compensation for 8x8 block */
-static void mc_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
-                         uint8_t *predicted, uint8_t *ref,
-                         int color_component) {
-
-  /*
-    The function simply copies the block from the reference frame to the
-    predicted block
-
-    It is calculated by current position + motion vector offset.
-  */
-  struct macroblock *mb =
-      &cm->curframe
-           ->mbs[color_component][mb_y * cm->padw[color_component] / 8 + mb_x];
-
-  // If we do not use a motion vector, just return
-  if (!mb->use_mv) {
+__global__ static void mc_block_8x8(uint8_t *predicted, const uint8_t *ref,
+                                    const struct macroblock *mbs, int mb_cols,
+                                    int mb_rows, int w) {
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  int num_mbs = mb_cols * mb_rows;
+  if (tid >= num_mbs)
     return;
-  }
+
+  int mb_x = tid % mb_cols;
+  int mb_y = tid / mb_cols;
+
+  const struct macroblock *mb = &mbs[tid];
+  if (!mb->use_mv)
+    return;
 
   int left = mb_x * 8;
   int top = mb_y * 8;
   int right = left + 8;
   int bottom = top + 8;
-
-  int w = cm->padw[color_component];
 
   /* Copy block from ref mandated by MV */
   int x, y;
@@ -222,24 +217,121 @@ static void mc_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
 // DANGER: Is also used by the decoder
 void c63_motion_compensate(struct c63_common *cm) {
   nvtxRangePushA("c63_motion_compensate");
-  int mb_x, mb_y;
 
-  /* Luma */
-  for (mb_y = 0; mb_y < cm->mb_rows; ++mb_y) {
-    for (mb_x = 0; mb_x < cm->mb_cols; ++mb_x) {
-      mc_block_8x8(cm, mb_x, mb_y, cm->curframe->predicted->Y,
-                   cm->refframe->recons->Y, Y_COMPONENT);
-    }
+  // Kernel launch params
+  size_t threads_per_block = 64;
+
+  size_t num_mbs_Y = cm->mb_cols * cm->mb_rows;
+  size_t num_mbs_C = cm->mb_cols / 2 * cm->mb_rows / 2;
+
+  size_t blocks_Y = (num_mbs_Y + threads_per_block - 1) / threads_per_block;
+  size_t blocks_C = (num_mbs_C + threads_per_block - 1) / threads_per_block;
+
+  // Read necessary data from cm
+  uint8_t *predicted_Y = cm->curframe->predicted->Y;
+  uint8_t *predicted_U = cm->curframe->predicted->U;
+  uint8_t *predicted_V = cm->curframe->predicted->V;
+
+  uint8_t *recons_Y = cm->refframe->recons->Y;
+  uint8_t *recons_U = cm->refframe->recons->U;
+  uint8_t *recons_V = cm->refframe->recons->V;
+
+  const struct macroblock *mbs_Y = cm->curframe->mbs[Y_COMPONENT];
+  const struct macroblock *mbs_U = cm->curframe->mbs[U_COMPONENT];
+  const struct macroblock *mbs_V = cm->curframe->mbs[V_COMPONENT];
+
+  // dimsensions for luma and chroma
+  int mb_cols_Y = cm->mb_cols;
+  int mb_rows_Y = cm->mb_rows;
+  int mb_cols_C = cm->mb_cols / 2;
+  int mb_rows_C = cm->mb_rows / 2;
+
+  int w_Y = cm->padw[Y_COMPONENT];
+  int w_U = cm->padw[U_COMPONENT];
+  int w_V = cm->padw[V_COMPONENT];
+
+  // Luma
+  mc_block_8x8<<<blocks_Y, threads_per_block>>>(predicted_Y, recons_Y, mbs_Y,
+                                                mb_cols_Y, mb_rows_Y, w_Y);
+
+  // Chroma
+  mc_block_8x8<<<blocks_C, threads_per_block>>>(predicted_U, recons_U, mbs_U,
+                                                mb_cols_C, mb_rows_C, w_U);
+  mc_block_8x8<<<blocks_C, threads_per_block>>>(predicted_V, recons_V, mbs_V,
+                                                mb_cols_C, mb_rows_C, w_V);
+
+  cudaDeviceSynchronize();
+  nvtxRangePop();
+}
+
+void c63_motion_inter(struct c63_common *cm) {
+  const int threads_per_block = 64;
+
+  nvtxRangePushA("motion_inter_extract_data");
+  // Extract all necessary data from cm
+  const uint8_t *orig_Y = cm->curframe->orig->Y;
+  const uint8_t *orig_U = cm->curframe->orig->U;
+  const uint8_t *orig_V = cm->curframe->orig->V;
+
+  const uint8_t *recons_Y = cm->refframe->recons->Y;
+  const uint8_t *recons_U = cm->refframe->recons->U;
+  const uint8_t *recons_V = cm->refframe->recons->V;
+
+  struct macroblock *mbs_Y = cm->curframe->mbs[Y_COMPONENT];
+  struct macroblock *mbs_U = cm->curframe->mbs[U_COMPONENT];
+  struct macroblock *mbs_V = cm->curframe->mbs[V_COMPONENT];
+
+  uint8_t *pred_Y = cm->curframe->predicted->Y;
+  uint8_t *pred_U = cm->curframe->predicted->U;
+  uint8_t *pred_V = cm->curframe->predicted->V;
+
+  int mb_cols_Y = cm->mb_cols;
+  int mb_rows_Y = cm->mb_rows;
+  int mb_cols_C = cm->mb_cols / 2;
+  int mb_rows_C = cm->mb_rows / 2;
+
+  int w_Y = cm->padw[Y_COMPONENT], h_Y = cm->padh[Y_COMPONENT];
+  int w_U = cm->padw[U_COMPONENT], h_U = cm->padh[U_COMPONENT];
+  int w_V = cm->padw[V_COMPONENT], h_V = cm->padh[V_COMPONENT];
+
+  int range_Y = cm->me_search_range;
+  int range_C = cm->me_search_range / 2;
+
+  size_t nY = (size_t)mb_cols_Y * mb_rows_Y;
+  size_t nC = (size_t)mb_cols_C * mb_rows_C;
+  size_t bY = (nY + threads_per_block - 1) / threads_per_block;
+  size_t bC = (nC + threads_per_block - 1) / threads_per_block;
+
+  // If your ME kernel uses shared 8x8 orig cache per thread:
+  size_t shmem = threads_per_block * 64 * sizeof(uint8_t);
+
+  // Motion Estimation
+  // Luma
+  me_block_8x8<<<bY, threads_per_block, shmem>>>(
+      orig_Y, recons_Y, mbs_Y, mb_cols_Y, mb_rows_Y, w_Y, h_Y, range_Y);
+
+  // Chroma
+  me_block_8x8<<<bC, threads_per_block, shmem>>>(
+      orig_U, recons_U, mbs_U, mb_cols_C, mb_rows_C, w_U, h_U, range_C);
+  me_block_8x8<<<bC, threads_per_block, shmem>>>(
+      orig_V, recons_V, mbs_V, mb_cols_C, mb_rows_C, w_V, h_V, range_C);
+
+  // Motion Compensation
+  // Luma
+  mc_block_8x8<<<bY, threads_per_block>>>(pred_Y, recons_Y, mbs_Y, mb_cols_Y,
+                                          mb_rows_Y, w_Y);
+  // Chroma
+  mc_block_8x8<<<bC, threads_per_block>>>(pred_U, recons_U, mbs_U, mb_cols_C,
+                                          mb_rows_C, w_U);
+  mc_block_8x8<<<bC, threads_per_block>>>(pred_V, recons_V, mbs_V, mb_cols_C,
+                                          mb_rows_C, w_V);
+
+  cudaError_t err = cudaDeviceSynchronize();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "c63_motion_inter sync error: %s\n",
+            cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
   }
 
-  /* Chroma */
-  for (mb_y = 0; mb_y < cm->mb_rows / 2; ++mb_y) {
-    for (mb_x = 0; mb_x < cm->mb_cols / 2; ++mb_x) {
-      mc_block_8x8(cm, mb_x, mb_y, cm->curframe->predicted->U,
-                   cm->refframe->recons->U, U_COMPONENT);
-      mc_block_8x8(cm, mb_x, mb_y, cm->curframe->predicted->V,
-                   cm->refframe->recons->V, V_COMPONENT);
-    }
-  }
   nvtxRangePop();
 }
