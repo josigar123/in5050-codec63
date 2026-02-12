@@ -32,29 +32,36 @@ extern char *optarg;
 static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
   size_t len = 0;
   yuv_t *image;
+
   cudaMallocManaged(&image, sizeof(yuv_t));
 
   /* Read Y. The size of Y is the same as the size of the image. The indices
      represents the color component (0 is Y, 1 is U, and 2 is V) */
   cudaMallocManaged(&image->Y, cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] *
                                    sizeof(uint8_t));
+
   cudaMemset(image->Y, 0,
              cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t));
   len += fread(image->Y, 1, width * height, file);
 
   /* Read U. Given 4:2:0 chroma sub-sampling, the size is 1/4 of Y
      because (height/2)*(width/2) = (height*width)/4. */
+
   cudaMallocManaged(&image->U, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] *
                                    sizeof(uint8_t));
+
   cudaMemset(image->U, 0,
              cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t));
   len += fread(image->U, 1, (width * height) / 4, file);
 
   /* Read V. Given 4:2:0 chroma sub-sampling, the size is 1/4 of Y. */
+
   cudaMallocManaged(&image->V, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] *
                                    sizeof(uint8_t));
+
   cudaMemset(image->V, 0,
              cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t));
+
   len += fread(image->V, 1, (width * height) / 4, file);
 
   if (ferror(file)) {
@@ -80,7 +87,6 @@ static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
 
     return NULL;
   }
-
   return image;
 }
 
@@ -261,14 +267,12 @@ int main(int argc, char **argv) {
 
   while (1) {
     image = read_yuv(infile, cm);
-
     if (!image) {
       break;
     }
 
     printf("Encoding frame %d, ", numframes);
     c63_encode_image(cm, image);
-
     cudaFree(image->Y);
     cudaFree(image->U);
     cudaFree(image->V);
