@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <cuda_runtime.h>
 #include <nvtx3/nvToolsExt.h>
 
 #include "me.h"
@@ -17,8 +18,8 @@ stride is the widht of the entire frame in pixels (bytes).
 v * stride is used to calculate the beginning of the next row. u is then used to
 index the columns of the current row.
 */
-static void sad_block_8x8(uint8_t *block1, uint8_t *block2, int stride,
-                          int *result) {
+__device__ static void sad_block_8x8(uint8_t *block1, uint8_t *block2,
+                                     int stride, int *result) {
 
   int u, v;
 
@@ -32,45 +33,29 @@ static void sad_block_8x8(uint8_t *block1, uint8_t *block2, int stride,
 }
 
 /* Motion estimation for 8x8 block */
-static void me_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
-                         uint8_t *orig, uint8_t *ref, int color_component) {
+/*
+  We take in all necessary parameters so we dont dereference directly from cm as
+  that will cause segfaults upon launching kernels.
+*/
+__global__ static void me_block_8x8(uint8_t *orig, uint8_t *ref,
+                                    struct macroblock *mbs, int mb_cols,
+                                    int mb_rows, int w, int h, int range) {
 
-  /*
-    For a given color_component (Y, U, V) mbs[color_component] will return a
-    pointer to the components macroblocks for the current frame.
+  // Map 1D thread index to 2D macroblock row-major matrix index
+  int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  int num_mbs = mb_cols * mb_rows;
+  if (tid >= num_mbs)
+    return;
 
-  The second index indexed the actual macroblock to motion estimate on.
+  int mb_x = tid % mb_cols;
+  int mb_y = tid / mb_cols;
+  struct macroblock *mb = &mbs[tid];
 
-  mb_y = the row index of the macroblock
-  cm->padw[color_component] / 8 = the width of the macroblock in pixels
-  mb_x = the column index of the macroblock
-  */
-  struct macroblock *mb =
-      &cm->curframe
-           ->mbs[color_component][mb_y * cm->padw[color_component] / 8 + mb_x];
-
-  int range = cm->me_search_range;
-
-  /* Quarter resolution for chroma channels. color_component == 0 means Y. It is
-   * quarted since we half the resolution of the U and V channels both*/
-  if (color_component > 0) {
-    range /= 2;
-  }
-
-  /*Bounding box for the search window for the reference frame. This is needed
-   * so that we do not exceed the bounds of the reference frame in any
-   * direction, so that when we calculate SAD with a macroblock in orig with
-   * ref, the macroblock in ref will fully be in ref and not exceed it*/
   int left = mb_x * 8 - range;
   int top = mb_y * 8 - range;
   int right = mb_x * 8 + range;
   int bottom = mb_y * 8 + range;
 
-  int w = cm->padw[color_component];
-  int h = cm->padh[color_component];
-
-  /* Make sure we are within bounds of reference frame. TODO: Support partial
-     frame bounds. */
   if (left < 0) {
     left = 0;
   }
@@ -86,36 +71,22 @@ static void me_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
 
   int x, y;
 
-  /* Points to the top-left corner of the macroblock (the start of each
-   * macroblock to iterate over)*/
   int mx = mb_x * 8;
   int my = mb_y * 8;
 
   int best_sad = INT_MAX;
+  // Write to stack memory, then write to managed memory at the end
+  int best_mv_x = 0;
+  int best_mv_y = 0;
 
   for (y = top; y < bottom; ++y) {
     for (x = left; x < right; ++x) {
       int sad;
-      /*
-        We multiply my * w and y * w since this is how we get from one row to
-        another, since the frames are stored in a row major order.
-      */
       sad_block_8x8(orig + my * w + mx, ref + y * w + x, w, &sad);
 
-      /* printf("(%4d,%4d) - %d\n", x, y, sad); */
-
       if (sad < best_sad) {
-        /*
-          Store the cooridnates of the motion vector. e.g the displacement in 2D
-          that tells the us where to ind the macroblock in the reference framce
-
-          The vector is the offset (e.g how to reach the best predicted
-          macroblock in the reference frame) from the current macroblock. When
-          using the offset we get the top-left corner of the best predicted
-          macroblock in the reference frame.
-        */
-        mb->mv_x = x - mx;
-        mb->mv_y = y - my;
+        best_mv_x = x - mx;
+        best_mv_y = y - my;
         best_sad = sad;
       }
     }
@@ -127,36 +98,60 @@ static void me_block_8x8(struct c63_common *cm, int mb_x, int mb_y,
   /* printf("Using motion vector (%d, %d) with SAD %d\n", mb->mv_x, mb->mv_y,
      best_sad); */
 
+  mb->mv_x = (int8_t)best_mv_x;
+  mb->mv_y = (int8_t)best_mv_y;
   mb->use_mv = 1;
 }
 
 void c63_motion_estimate(struct c63_common *cm) {
   nvtxRangePushA("c63_motion_estimate");
-  /* Compare this frame with previous reconstructed frame (e.g the reference
-   * frame)*/
-  int mb_x, mb_y;
+
+  size_t threads_per_block = 64;
+  size_t num_mbs_Y = cm->mb_rows * cm->mb_cols;
+  size_t blocks_Y = (num_mbs_Y + threads_per_block - 1) / threads_per_block;
+  size_t num_mbs_U_V = cm->mb_rows / 2 * cm->mb_cols / 2;
+  size_t blocks_U_V = (num_mbs_U_V + threads_per_block - 1) / threads_per_block;
+
+  // Read necessary data from cm
+  uint8_t *orig_Y = cm->curframe->orig->Y;
+  uint8_t *orig_U = cm->curframe->orig->U;
+  uint8_t *orig_V = cm->curframe->orig->V;
+
+  uint8_t *recons_Y = cm->refframe->recons->Y;
+  uint8_t *recons_U = cm->refframe->recons->U;
+  uint8_t *recons_V = cm->refframe->recons->V;
+
+  struct macroblock *mbs_Y = cm->curframe->mbs[Y_COMPONENT];
+  struct macroblock *mbs_U = cm->curframe->mbs[U_COMPONENT];
+  struct macroblock *mbs_V = cm->curframe->mbs[V_COMPONENT];
+
+  // Luma parameters
+  int mb_cols_Y = cm->mb_cols;
+  int mb_rows_Y = cm->mb_rows;
+  int w_Y = cm->padw[Y_COMPONENT];
+  int h_Y = cm->padh[Y_COMPONENT];
+  int range_Y = cm->me_search_range;
+
+  // Chroma parameters
+  int mb_cols_C = cm->mb_cols / 2;
+  int mb_rows_C = cm->mb_rows / 2;
+  int w_U = cm->padw[U_COMPONENT];
+  int h_U = cm->padh[U_COMPONENT];
+  int w_V = cm->padw[V_COMPONENT];
+  int h_V = cm->padh[V_COMPONENT];
+  int range_C = cm->me_search_range / 2;
 
   /* Luma */
   /* For each macroblock in the luma frame estimate the motion vector from the
    * reconstructed reference frame (after iDCT/iQuant)*/
-  for (mb_y = 0; mb_y < cm->mb_rows; ++mb_y) {
-    for (mb_x = 0; mb_x < cm->mb_cols; ++mb_x) {
-      me_block_8x8(cm, mb_x, mb_y, cm->curframe->orig->Y,
-                   cm->refframe->recons->Y, Y_COMPONENT);
-    }
-  }
+  me_block_8x8<<<blocks_Y, threads_per_block>>>(
+      orig_Y, recons_Y, mbs_Y, mb_cols_Y, mb_rows_Y, w_Y, h_Y, range_Y);
+  me_block_8x8<<<blocks_U_V, threads_per_block>>>(
+      orig_U, recons_U, mbs_U, mb_cols_C, mb_rows_C, w_U, h_U, range_C);
+  me_block_8x8<<<blocks_U_V, threads_per_block>>>(
+      orig_V, recons_V, mbs_V, mb_cols_C, mb_rows_C, w_V, h_V, range_C);
 
-  /* Chroma */
-  /* For each macroblock in the chroma frames (U, V) estimate the motion
-   * vector*/
-  for (mb_y = 0; mb_y < cm->mb_rows / 2; ++mb_y) {
-    for (mb_x = 0; mb_x < cm->mb_cols / 2; ++mb_x) {
-      me_block_8x8(cm, mb_x, mb_y, cm->curframe->orig->U,
-                   cm->refframe->recons->U, U_COMPONENT);
-      me_block_8x8(cm, mb_x, mb_y, cm->curframe->orig->V,
-                   cm->refframe->recons->V, V_COMPONENT);
-    }
-  }
+  cudaDeviceSynchronize();
   nvtxRangePop();
 }
 
