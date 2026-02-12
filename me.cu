@@ -17,17 +17,20 @@ stride is the widht of the entire frame in pixels (bytes).
 
 v * stride is used to calculate the beginning of the next row. u is then used to
 index the columns of the current row.
-*/
-__device__ static void sad_block_8x8(uint8_t *block1, uint8_t *block2,
-                                     int stride, int *result) {
 
+Two strides since orig is 8x8 contiguous in memory NOT the entire frame.
+ref is the entire frame.
+*/
+__device__ __forceinline__ static void sad_block_8x8(const uint8_t *block1,
+                                                     const uint8_t *block2,
+                                                     int stride1, int stride2,
+                                                     int *result) {
   int u, v;
 
   *result = 0;
-
   for (v = 0; v < 8; ++v) {
     for (u = 0; u < 8; ++u) {
-      *result += abs(block2[v * stride + u] - block1[v * stride + u]);
+      *result += abs(block2[v * stride2 + u] - block1[v * stride1 + u]);
     }
   }
 }
@@ -37,7 +40,7 @@ __device__ static void sad_block_8x8(uint8_t *block1, uint8_t *block2,
   We take in all necessary parameters so we dont dereference directly from cm as
   that will cause segfaults upon launching kernels.
 */
-__global__ static void me_block_8x8(uint8_t *orig, uint8_t *ref,
+__global__ static void me_block_8x8(const uint8_t *orig, const uint8_t *ref,
                                     struct macroblock *mbs, int mb_cols,
                                     int mb_rows, int w, int h, int range) {
 
@@ -74,6 +77,20 @@ __global__ static void me_block_8x8(uint8_t *orig, uint8_t *ref,
   int mx = mb_x * 8;
   int my = mb_y * 8;
 
+  // Shared tile: 64 bytes per thread (8x8), contiguous per thread.
+  extern __shared__ uint8_t sh_orig[];
+  uint8_t *threads_orig = sh_orig + threadIdx.x * 64;
+
+// Load this thread's orig 8x8 block once into shared memory. Its 8x8 contiguous
+// in memory NOT the entire frame.
+#pragma unroll
+  for (int v = 0; v < 8; ++v) {
+#pragma unroll
+    for (int u = 0; u < 8; ++u) {
+      threads_orig[v * 8 + u] = orig[(my + v) * w + (mx + u)];
+    }
+  }
+
   int best_sad = INT_MAX;
   // Write to stack memory, then write to managed memory at the end
   int best_mv_x = 0;
@@ -82,7 +99,7 @@ __global__ static void me_block_8x8(uint8_t *orig, uint8_t *ref,
   for (y = top; y < bottom; ++y) {
     for (x = left; x < right; ++x) {
       int sad;
-      sad_block_8x8(orig + my * w + mx, ref + y * w + x, w, &sad);
+      sad_block_8x8(threads_orig, ref + y * w + x, 8, w, &sad);
 
       if (sad < best_sad) {
         best_mv_x = x - mx;
@@ -141,14 +158,16 @@ void c63_motion_estimate(struct c63_common *cm) {
   int h_V = cm->padh[V_COMPONENT];
   int range_C = cm->me_search_range / 2;
 
+  size_t shared_mem_size = threads_per_block * 64 * sizeof(uint8_t);
+
   /* Luma */
   /* For each macroblock in the luma frame estimate the motion vector from the
    * reconstructed reference frame (after iDCT/iQuant)*/
-  me_block_8x8<<<blocks_Y, threads_per_block>>>(
+  me_block_8x8<<<blocks_Y, threads_per_block, shared_mem_size>>>(
       orig_Y, recons_Y, mbs_Y, mb_cols_Y, mb_rows_Y, w_Y, h_Y, range_Y);
-  me_block_8x8<<<blocks_U_V, threads_per_block>>>(
+  me_block_8x8<<<blocks_U_V, threads_per_block, shared_mem_size>>>(
       orig_U, recons_U, mbs_U, mb_cols_C, mb_rows_C, w_U, h_U, range_C);
-  me_block_8x8<<<blocks_U_V, threads_per_block>>>(
+  me_block_8x8<<<blocks_U_V, threads_per_block, shared_mem_size>>>(
       orig_V, recons_V, mbs_V, mb_cols_C, mb_rows_C, w_V, h_V, range_C);
 
   cudaDeviceSynchronize();
