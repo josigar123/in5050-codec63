@@ -19,4 +19,4 @@ extern float dctlookup[8][8];
 extern uint16_t MVVLC[8];
 extern uint8_t MVVLC_Size[8];
 
-#endif  /* C63_TABLES_H_ */
+#endif /* C63_TABLES_H_ */

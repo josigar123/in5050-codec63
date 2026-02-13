@@ -12,8 +12,8 @@
 #include "c63.h"
 #include "c63_write.h"
 #include "common.h"
-#include "me.h"
-#include "quantdct.h"
+#include "me_device.h"
+#include "quantdct_device.h"
 #include "tables.h"
 
 static char *output_file, *input_file;
@@ -110,34 +110,20 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image) {
 
     /* Motion Interpolation */
     c63_motion_inter(cm);
+    cudaDeviceSynchronize();
   }
 
-  /* DCT and Quantization */
-  dct_quantize(image->Y, cm->curframe->predicted->Y, cm->padw[Y_COMPONENT],
-               cm->padh[Y_COMPONENT], cm->curframe->residuals->Ydct,
-               cm->quanttbl[Y_COMPONENT]);
-
-  dct_quantize(image->U, cm->curframe->predicted->U, cm->padw[U_COMPONENT],
-               cm->padh[U_COMPONENT], cm->curframe->residuals->Udct,
-               cm->quanttbl[U_COMPONENT]);
-
-  dct_quantize(image->V, cm->curframe->predicted->V, cm->padw[V_COMPONENT],
-               cm->padh[V_COMPONENT], cm->curframe->residuals->Vdct,
-               cm->quanttbl[V_COMPONENT]);
-
-  /* Reconstruct frame for inter-prediction */
-  dequantize_idct(cm->curframe->residuals->Ydct, cm->curframe->predicted->Y,
-                  cm->ypw, cm->yph, cm->curframe->recons->Y,
-                  cm->quanttbl[Y_COMPONENT]);
-  dequantize_idct(cm->curframe->residuals->Udct, cm->curframe->predicted->U,
-                  cm->upw, cm->uph, cm->curframe->recons->U,
-                  cm->quanttbl[U_COMPONENT]);
-  dequantize_idct(cm->curframe->residuals->Vdct, cm->curframe->predicted->V,
-                  cm->vpw, cm->vph, cm->curframe->recons->V,
-                  cm->quanttbl[V_COMPONENT]);
+  quantize_dct_dequantize_idct_inter(cm, image);
 
   /* Function dump_image(), found in common.c, can be used here to check if the
      prediction is correct */
+
+  cudaError_t err = cudaDeviceSynchronize();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "c63_motion_inter sync error: %s\n",
+            cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
 
   write_frame(cm);
 

@@ -42,11 +42,14 @@ endif()
 # endif()
 
 add_library(c63
-            STATIC quantdct.cu quantdct.h
+            STATIC 
 	           tables.cu tables.h
 	           io.cu io.h
 	           common.cu common.h
-	           me.cu me.h)
+	           me.cu me.h
+             quantdct_device.cu quantdct_device.h
+             quantdct.cu quantdct.h
+             me_device.cu me_device.h)
 
 add_executable(c63enc
                c63enc.cu c63.h
