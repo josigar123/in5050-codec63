@@ -49,7 +49,8 @@ add_library(c63
 	           me.cu me.h
              quantdct_device.cu quantdct_device.h
              quantdct.cu quantdct.h
-             me_device.cu me_device.h)
+             me_device.cu me_device.h
+             c63_inter_gpu_pipeline.cu c63_inter_gpu_pipeline.h)
 
 add_executable(c63enc
                c63enc.cu c63.h
