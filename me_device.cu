@@ -100,6 +100,7 @@ __global__ static void me_block_8x8_kernel(const uint8_t *orig,
   int best_mv_x = 0;
   int best_mv_y = 0;
 
+  // Mask, all lanes are participating
   unsigned mask = 0xffffffffu;
   for (y = top; y < bottom; ++y) {
     for (x = left; x < right; ++x) {
@@ -144,31 +145,34 @@ __global__ static void mc_block_8x8_kernel(uint8_t *predicted,
                                            const uint8_t *ref,
                                            const struct macroblock *mbs,
                                            int mb_cols, int mb_rows, int w) {
-  int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  int num_mbs = mb_cols * mb_rows;
-  if (tid >= num_mbs)
+  int mb_idx = blockIdx.x; // one block per MB
+  if (mb_idx >= mb_cols * mb_rows)
     return;
 
-  int mb_x = tid % mb_cols;
-  int mb_y = tid / mb_cols;
+  int lane = threadIdx.x; // 0..31
+  int mb_x = mb_idx % mb_cols;
+  int mb_y = mb_idx / mb_cols;
 
-  const struct macroblock *mb = &mbs[tid];
-  if (!mb->use_mv)
+  const macroblock *mb = &mbs[mb_idx];
+  if (!mb->use_mv) {
     return;
+  }
 
   int left = mb_x * 8;
   int top = mb_y * 8;
-  int right = left + 8;
-  int bottom = top + 8;
 
-  /* Copy block from ref mandated by MV */
-  int x, y;
+  // lane handles 2 pixels in the 8x8 block
+  int p0 = lane;      // 0..31
+  int p1 = lane + 32; // 32..63
 
-  for (y = top; y < bottom; ++y) {
-    for (x = left; x < right; ++x) {
-      predicted[y * w + x] = ref[(y + mb->mv_y) * w + (x + mb->mv_x)];
-    }
-  }
+  int u0 = p0 & 7, v0 = p0 >> 3;
+  int u1 = p1 & 7, v1 = p1 >> 3;
+
+  int x0 = left + u0, y0 = top + v0;
+  int x1 = left + u1, y1 = top + v1;
+
+  predicted[y0 * w + x0] = ref[(y0 + mb->mv_y) * w + (x0 + mb->mv_x)];
+  predicted[y1 * w + x1] = ref[(y1 + mb->mv_y) * w + (x1 + mb->mv_x)];
 }
 
 void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
@@ -200,13 +204,13 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   nvtxRangePop();
 
   nvtxRangePushA("motion_compensation");
-  mc_block_8x8_kernel<<<blocks_Y, 64, 0, stream_y>>>(
+  mc_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.pred_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y);
 
-  mc_block_8x8_kernel<<<blocks_C, 64, 0, stream_u>>>(
+  mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
       a.pred_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U);
 
-  mc_block_8x8_kernel<<<blocks_C, 64, 0, stream_v>>>(
+  mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.pred_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V);
   nvtxRangePop();
 }
