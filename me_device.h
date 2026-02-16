@@ -23,6 +23,7 @@ struct motion_inter_args {
   int range_Y, range_C;
 };
 
-void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream);
+void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
+                         cudaStream_t stream_u, cudaStream_t stream_v);
 
 #endif /* C63_ME_H_ */

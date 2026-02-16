@@ -17,6 +17,7 @@ struct quant_inter_args {
 
 void init_quantdct_constants(void);
 
-void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream);
+void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
+                           cudaStream_t stream_u, cudaStream_t stream_v);
 
 #endif /* QUANTDCT_DEVICE_H_ */
