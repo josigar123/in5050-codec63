@@ -5,7 +5,8 @@
 #include <nvtx3/nvToolsExt.h>
 
 void c63_inter_gpu_pipeline(struct c63_common *cm, yuv_t *image,
-                            cudaStream_t stream) {
+                            cudaStream_t stream_y, cudaStream_t stream_u,
+                            cudaStream_t stream_v) {
   nvtxRangePushA("c63_inter_gpu_pipeline");
 
   // Snapshot the quant arguments before first launch, always create a snapshot
@@ -60,11 +61,11 @@ void c63_inter_gpu_pipeline(struct c63_common *cm, yuv_t *image,
                            cm->me_search_range / 2};
 
     // Launch the motion estimation and compensation
-    launch_motion_inter(m, stream);
+    launch_motion_inter(m, stream_y, stream_u, stream_v);
   }
 
   // Launch the DCT/Quant/DeQuant/IDCT pipeline
-  launch_quantdct_inter(q, stream);
+  launch_quantdct_inter(q, stream_y, stream_u, stream_v);
 
   nvtxRangePop();
 }

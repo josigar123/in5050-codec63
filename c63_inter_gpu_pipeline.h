@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 void c63_inter_gpu_pipeline(struct c63_common *cm, yuv_t *image,
-                            cudaStream_t stream);
+                            cudaStream_t stream_y, cudaStream_t stream_u,
+                            cudaStream_t stream_v);
 
 #endif

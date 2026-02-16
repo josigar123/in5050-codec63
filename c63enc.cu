@@ -92,7 +92,8 @@ static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
 }
 
 static void c63_encode_image(struct c63_common *cm, yuv_t *image,
-                             cudaStream_t stream) {
+                             cudaStream_t stream_y, cudaStream_t stream_u,
+                             cudaStream_t stream_v) {
   /* Advance to next frame */
   destroy_frame(cm->refframe);
   cm->refframe = cm->curframe;
@@ -110,7 +111,7 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
 
   // Run the ME/MC and DCT/Quant/DeQuant/IDCT pipeline, the test for chceking if
   // we have a keyframe is inside the pipeline
-  c63_inter_gpu_pipeline(cm, image, stream);
+  c63_inter_gpu_pipeline(cm, image, stream_y, stream_u, stream_v);
 
   /* Function dump_image(), found in common.c, can be used here to check if the
    prediction is correct */
@@ -240,13 +241,13 @@ int main(int argc, char **argv) {
   /* Encode input frames */
   int numframes = 0;
 
-  // Create a stream for the encoding process
-  cudaStream_t stream;
-  cudaError_t err = cudaStreamCreate(&stream);
-  if (err != cudaSuccess) {
-    fprintf(stderr, "cudaStreamCreate failed: %s\n", cudaGetErrorString(err));
-    exit(1);
-  }
+  // Create a streams for the encoding process
+  cudaStream_t stream_y;
+  cudaStream_t stream_u;
+  cudaStream_t stream_v;
+  cudaStreamCreate(&stream_y);
+  cudaStreamCreate(&stream_u);
+  cudaStreamCreate(&stream_v);
 
   while (1) {
     image = read_yuv(infile, cm);
@@ -255,8 +256,10 @@ int main(int argc, char **argv) {
     }
 
     printf("Encoding frame %d, ", numframes);
-    c63_encode_image(cm, image, stream);
-    cudaStreamSynchronize(stream);
+    c63_encode_image(cm, image, stream_y, stream_u, stream_v);
+    cudaStreamSynchronize(stream_y);
+    cudaStreamSynchronize(stream_u);
+    cudaStreamSynchronize(stream_v);
 
     write_frame(cm);
 
@@ -277,7 +280,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  cudaStreamDestroy(stream);
+  cudaStreamDestroy(stream_y);
+  cudaStreamDestroy(stream_u);
+  cudaStreamDestroy(stream_v);
 
   free_c63_enc(cm);
   fclose(outfile);

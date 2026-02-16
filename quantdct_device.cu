@@ -214,7 +214,8 @@ __global__ void dct_quantize_kernel(uint8_t *in_data, uint8_t *prediction,
   dct_quant_block_8x8_device(block, out_data + coeff_base, quantization);
 }
 
-void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream) {
+void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
+                           cudaStream_t stream_u, cudaStream_t stream_v) {
   dim3 block(16, 8);
   dim3 gridY((a.wY / 8 + block.x - 1) / block.x,
              (a.hY / 8 + block.y - 1) / block.y);
@@ -224,25 +225,25 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream) {
              (a.hV / 8 + block.y - 1) / block.y);
 
   nvtxRangePushA("dct_quantize");
-  dct_quantize_kernel<<<gridY, block, 0, stream>>>(a.inY, a.predY, a.wY, a.hY,
-                                                   a.resY, a.qY);
-  dct_quantize_kernel<<<gridU, block, 0, stream>>>(a.inU, a.predU, a.wU, a.hU,
-                                                   a.resU, a.qU);
+  dct_quantize_kernel<<<gridY, block, 0, stream_y>>>(a.inY, a.predY, a.wY, a.hY,
+                                                     a.resY, a.qY);
+  dct_quantize_kernel<<<gridU, block, 0, stream_u>>>(a.inU, a.predU, a.wU, a.hU,
+                                                     a.resU, a.qU);
 
-  dct_quantize_kernel<<<gridV, block, 0, stream>>>(a.inV, a.predV, a.wV, a.hV,
-                                                   a.resV, a.qV);
+  dct_quantize_kernel<<<gridV, block, 0, stream_v>>>(a.inV, a.predV, a.wV, a.hV,
+                                                     a.resV, a.qV);
 
   nvtxRangePop();
 
   nvtxRangePushA("dequantize_idct");
-  dequantize_idct_kernel<<<gridY, block, 0, stream>>>(a.resY, a.predY, a.wY,
-                                                      a.hY, a.recY, a.qY);
+  dequantize_idct_kernel<<<gridY, block, 0, stream_y>>>(a.resY, a.predY, a.wY,
+                                                        a.hY, a.recY, a.qY);
 
-  dequantize_idct_kernel<<<gridU, block, 0, stream>>>(a.resU, a.predU, a.wU,
-                                                      a.hU, a.recU, a.qU);
+  dequantize_idct_kernel<<<gridU, block, 0, stream_u>>>(a.resU, a.predU, a.wU,
+                                                        a.hU, a.recU, a.qU);
 
-  dequantize_idct_kernel<<<gridV, block, 0, stream>>>(a.resV, a.predV, a.wV,
-                                                      a.hV, a.recV, a.qV);
+  dequantize_idct_kernel<<<gridV, block, 0, stream_v>>>(a.resV, a.predV, a.wV,
+                                                        a.hV, a.recV, a.qV);
 
   nvtxRangePop();
 }
