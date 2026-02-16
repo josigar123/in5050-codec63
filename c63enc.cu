@@ -10,9 +10,10 @@
 #include <cuda_runtime.h>
 
 #include "c63.h"
+#include "c63_inter_gpu_pipeline.h"
 #include "c63_write.h"
 #include "common.h"
-#include "me_device.h"
+#include "nvtx3/nvToolsExt.h"
 #include "quantdct_device.h"
 #include "tables.h"
 
@@ -90,7 +91,8 @@ static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
   return image;
 }
 
-static void c63_encode_image(struct c63_common *cm, yuv_t *image) {
+static void c63_encode_image(struct c63_common *cm, yuv_t *image,
+                             cudaStream_t stream) {
   /* Advance to next frame */
   destroy_frame(cm->refframe);
   cm->refframe = cm->curframe;
@@ -106,29 +108,15 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image) {
     cm->curframe->keyframe = 0;
   }
 
-  if (!cm->curframe->keyframe) {
+  // Run the ME/MC and DCT/Quant/DeQuant/IDCT pipeline, the test for chceking if
+  // we have a keyframe is inside the pipeline
+  c63_inter_gpu_pipeline(cm, image, stream);
 
-    /* Motion Interpolation */
-    c63_motion_inter(cm);
-    cudaDeviceSynchronize();
-  }
-
-  quantize_dct_dequantize_idct_inter(cm, image);
+  /* Function dump_image(), found in common.c, can be used here to check if the
+   prediction is correct */
 
   /* Function dump_image(), found in common.c, can be used here to check if the
      prediction is correct */
-
-  cudaError_t err = cudaDeviceSynchronize();
-  if (err != cudaSuccess) {
-    fprintf(stderr, "c63_motion_inter sync error: %s\n",
-            cudaGetErrorString(err));
-    exit(EXIT_FAILURE);
-  }
-
-  write_frame(cm);
-
-  ++cm->framenum;
-  ++cm->frames_since_keyframe;
 }
 
 struct c63_common *init_c63_enc(int width, int height) {
@@ -169,6 +157,9 @@ struct c63_common *init_c63_enc(int width, int height) {
     cm->quanttbl[U_COMPONENT][i] = uvquanttbl_def[i] / (cm->qp / 10.0);
     cm->quanttbl[V_COMPONENT][i] = uvquanttbl_def[i] / (cm->qp / 10.0);
   }
+
+  // Copy tables into constant memory
+  init_quantdct_constants();
 
   return cm;
 }
@@ -249,6 +240,14 @@ int main(int argc, char **argv) {
   /* Encode input frames */
   int numframes = 0;
 
+  // Create a stream for the encoding process
+  cudaStream_t stream;
+  cudaError_t err = cudaStreamCreate(&stream);
+  if (err != cudaSuccess) {
+    fprintf(stderr, "cudaStreamCreate failed: %s\n", cudaGetErrorString(err));
+    exit(1);
+  }
+
   while (1) {
     image = read_yuv(infile, cm);
     if (!image) {
@@ -256,7 +255,11 @@ int main(int argc, char **argv) {
     }
 
     printf("Encoding frame %d, ", numframes);
-    c63_encode_image(cm, image);
+    c63_encode_image(cm, image, stream);
+    cudaStreamSynchronize(stream);
+
+    write_frame(cm);
+
     cudaFree(image->Y);
     cudaFree(image->U);
     cudaFree(image->V);
@@ -266,10 +269,15 @@ int main(int argc, char **argv) {
 
     ++numframes;
 
+    ++cm->framenum;
+    ++cm->frames_since_keyframe;
+
     if (limit_numframes && numframes >= limit_numframes) {
       break;
     }
   }
+
+  cudaStreamDestroy(stream);
 
   free_c63_enc(cm);
   fclose(outfile);

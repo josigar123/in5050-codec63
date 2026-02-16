@@ -9,7 +9,7 @@
 #include <cuda_runtime.h>
 #include <nvtx3/nvToolsExt.h>
 
-#include "me.h"
+#include "me_device.h"
 
 /*
 block1 and block2 points to the beginning of a 8x8 block in the entire frame.
@@ -39,6 +39,7 @@ sad_block_8x8_device(const uint8_t *block1, const uint8_t *block2, int stride1,
   We take in all necessary parameters so we dont dereference directly from cm as
   that will cause segfaults upon launching kernels.
 */
+
 __global__ static void me_block_8x8_kernel(const uint8_t *orig,
                                            const uint8_t *ref,
                                            struct macroblock *mbs, int mb_cols,
@@ -149,70 +150,36 @@ __global__ static void mc_block_8x8_kernel(uint8_t *predicted,
   }
 }
 
-void c63_motion_inter(struct c63_common *cm) {
-  nvtxRangePushA("c63_motion_inter");
+void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream) {
+  const int tpb = 64;
+  size_t nY = (size_t)a.mb_cols_Y * a.mb_rows_Y;
+  size_t nC = (size_t)a.mb_cols_C * a.mb_rows_C;
+  size_t bY = (nY + tpb - 1) / tpb;
+  size_t bC = (nC + tpb - 1) / tpb;
 
-  const int threads_per_block = 64;
-
-  // Extract all necessary data from cm
-  const uint8_t *orig_Y = cm->curframe->orig->Y;
-  const uint8_t *orig_U = cm->curframe->orig->U;
-  const uint8_t *orig_V = cm->curframe->orig->V;
-
-  const uint8_t *recons_Y = cm->refframe->recons->Y;
-  const uint8_t *recons_U = cm->refframe->recons->U;
-  const uint8_t *recons_V = cm->refframe->recons->V;
-
-  struct macroblock *mbs_Y = cm->curframe->mbs[Y_COMPONENT];
-  struct macroblock *mbs_U = cm->curframe->mbs[U_COMPONENT];
-  struct macroblock *mbs_V = cm->curframe->mbs[V_COMPONENT];
-
-  uint8_t *pred_Y = cm->curframe->predicted->Y;
-  uint8_t *pred_U = cm->curframe->predicted->U;
-  uint8_t *pred_V = cm->curframe->predicted->V;
-
-  int mb_cols_Y = cm->mb_cols;
-  int mb_rows_Y = cm->mb_rows;
-  int mb_cols_C = cm->mb_cols / 2;
-  int mb_rows_C = cm->mb_rows / 2;
-
-  int w_Y = cm->padw[Y_COMPONENT], h_Y = cm->padh[Y_COMPONENT];
-  int w_U = cm->padw[U_COMPONENT], h_U = cm->padh[U_COMPONENT];
-  int w_V = cm->padw[V_COMPONENT], h_V = cm->padh[V_COMPONENT];
-
-  int range_Y = cm->me_search_range;
-  int range_C = cm->me_search_range / 2;
-
-  size_t nY = (size_t)mb_cols_Y * mb_rows_Y;
-  size_t nC = (size_t)mb_cols_C * mb_rows_C;
-  size_t bY = (nY + threads_per_block - 1) / threads_per_block;
-  size_t bC = (nC + threads_per_block - 1) / threads_per_block;
-
-  // Motion Estimation
   nvtxRangePushA("motion_estimation");
-  // Luma
-  me_block_8x8_kernel<<<bY, threads_per_block>>>(
-      orig_Y, recons_Y, mbs_Y, mb_cols_Y, mb_rows_Y, w_Y, h_Y, range_Y);
+  me_block_8x8_kernel<<<bY, tpb, 0, stream>>>(a.orig_Y, a.recons_Y, a.mbs_Y,
+                                              a.mb_cols_Y, a.mb_rows_Y, a.w_Y,
+                                              a.h_Y, a.range_Y);
 
-  // Chroma
-  me_block_8x8_kernel<<<bC, threads_per_block>>>(
-      orig_U, recons_U, mbs_U, mb_cols_C, mb_rows_C, w_U, h_U, range_C);
-  me_block_8x8_kernel<<<bC, threads_per_block>>>(
-      orig_V, recons_V, mbs_V, mb_cols_C, mb_rows_C, w_V, h_V, range_C);
+  me_block_8x8_kernel<<<bC, tpb, 0, stream>>>(a.orig_U, a.recons_U, a.mbs_U,
+                                              a.mb_cols_C, a.mb_rows_C, a.w_U,
+                                              a.h_U, a.range_C);
+
+  me_block_8x8_kernel<<<bC, tpb, 0, stream>>>(a.orig_V, a.recons_V, a.mbs_V,
+                                              a.mb_cols_C, a.mb_rows_C, a.w_V,
+                                              a.h_V, a.range_C);
 
   nvtxRangePop();
 
   nvtxRangePushA("motion_compensation");
-  // Motion Compensation
-  // Luma
-  mc_block_8x8_kernel<<<bY, threads_per_block>>>(pred_Y, recons_Y, mbs_Y,
-                                                 mb_cols_Y, mb_rows_Y, w_Y);
-  // Chroma
-  mc_block_8x8_kernel<<<bC, threads_per_block>>>(pred_U, recons_U, mbs_U,
-                                                 mb_cols_C, mb_rows_C, w_U);
-  mc_block_8x8_kernel<<<bC, threads_per_block>>>(pred_V, recons_V, mbs_V,
-                                                 mb_cols_C, mb_rows_C, w_V);
-  nvtxRangePop();
+  mc_block_8x8_kernel<<<bY, tpb, 0, stream>>>(a.pred_Y, a.recons_Y, a.mbs_Y,
+                                              a.mb_cols_Y, a.mb_rows_Y, a.w_Y);
 
+  mc_block_8x8_kernel<<<bC, tpb, 0, stream>>>(a.pred_U, a.recons_U, a.mbs_U,
+                                              a.mb_cols_C, a.mb_rows_C, a.w_U);
+
+  mc_block_8x8_kernel<<<bC, tpb, 0, stream>>>(a.pred_V, a.recons_V, a.mbs_V,
+                                              a.mb_cols_C, a.mb_rows_C, a.w_V);
   nvtxRangePop();
 }

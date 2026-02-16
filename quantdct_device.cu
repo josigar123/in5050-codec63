@@ -16,6 +16,13 @@ __constant__ uint8_t c_zigzag_U[64];
 __constant__ uint8_t c_zigzag_V[64];
 __constant__ float c_dctlookup[8][8];
 
+// Called once at startup from init_c63_enc
+void init_quantdct_constants(void) {
+  cudaMemcpyToSymbol(c_zigzag_U, zigzag_U, sizeof(zigzag_U));
+  cudaMemcpyToSymbol(c_zigzag_V, zigzag_V, sizeof(zigzag_V));
+  cudaMemcpyToSymbol(c_dctlookup, dctlookup, sizeof(dctlookup));
+}
+
 __device__ __forceinline__ static void dct_2d_device(const float *in,
                                                      float *out) {
 
@@ -45,7 +52,7 @@ __device__ __forceinline__ static void idct_2d_device(const float *in,
       float dct = 0;
       for (int y = 0; y < 8; y++) {
         for (int x = 0; x < 8; x++) {
-          dct += in[y * 8 + x] * c_dctlookup[x][u] * c_dctlookup[y][v];
+          dct += in[y * 8 + x] * c_dctlookup[u][x] * c_dctlookup[v][y];
         }
       }
 
@@ -207,63 +214,35 @@ __global__ void dct_quantize_kernel(uint8_t *in_data, uint8_t *prediction,
   dct_quant_block_8x8_device(block, out_data + coeff_base, quantization);
 }
 
-// Host launch orchestrator
-void quantize_dct_dequantize_idct_inter(struct c63_common *cm, yuv_t *image) {
-
-  nvtxRangePushA("quantice_dct_dequantize_idct_inter");
-
-  // 8x8 block-grid over each plane
+void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream) {
   dim3 block(16, 8);
+  dim3 gridY((a.wY / 8 + block.x - 1) / block.x,
+             (a.hY / 8 + block.y - 1) / block.y);
+  dim3 gridU((a.wU / 8 + block.x - 1) / block.x,
+             (a.hU / 8 + block.y - 1) / block.y);
+  dim3 gridV((a.wV / 8 + block.x - 1) / block.x,
+             (a.hV / 8 + block.y - 1) / block.y);
 
-  // Copy to constant memory
-  cudaMemcpyToSymbol(c_zigzag_U, zigzag_U, sizeof(zigzag_U));
-  cudaMemcpyToSymbol(c_zigzag_V, zigzag_V, sizeof(zigzag_V));
-  cudaMemcpyToSymbol(c_dctlookup, dctlookup, sizeof(dctlookup));
-
-  // Luma
-  uint8_t *inY = image->Y;
-  uint8_t *predY = cm->curframe->predicted->Y;
-  int16_t *resY = cm->curframe->residuals->Ydct;
-  uint8_t *recY = cm->curframe->recons->Y;
-  uint8_t *qY = cm->quanttbl[Y_COMPONENT];
-  uint32_t wY = cm->padw[Y_COMPONENT], hY = cm->padh[Y_COMPONENT];
-
-  // Chrma U
-  uint8_t *inU = image->U;
-  uint8_t *predU = cm->curframe->predicted->U;
-  int16_t *resU = cm->curframe->residuals->Udct;
-  uint8_t *recU = cm->curframe->recons->U;
-  uint8_t *qU = cm->quanttbl[U_COMPONENT];
-  uint32_t wU = cm->padw[U_COMPONENT], hU = cm->padh[U_COMPONENT];
-
-  // Chroma V
-  uint8_t *inV = image->V;
-  uint8_t *predV = cm->curframe->predicted->V;
-  int16_t *resV = cm->curframe->residuals->Vdct;
-  uint8_t *recV = cm->curframe->recons->V;
-  uint8_t *qV = cm->quanttbl[V_COMPONENT];
-  uint32_t wV = cm->padw[V_COMPONENT], hV = cm->padh[V_COMPONENT];
-
-  dim3 gridY((wY / 8 + block.x - 1) / block.x,
-             (hY / 8 + block.y - 1) / block.y);
-  dim3 gridU((wU / 8 + block.x - 1) / block.x,
-             (hU / 8 + block.y - 1) / block.y);
-  dim3 gridV((wV / 8 + block.x - 1) / block.x,
-             (hV / 8 + block.y - 1) / block.y);
-
-  // DCT+Quant (Y/U/V)
   nvtxRangePushA("dct_quantize");
-  dct_quantize_kernel<<<gridY, block>>>(inY, predY, wY, hY, resY, qY);
-  dct_quantize_kernel<<<gridU, block>>>(inU, predU, wU, hU, resU, qU);
-  dct_quantize_kernel<<<gridV, block>>>(inV, predV, wV, hV, resV, qV);
+  dct_quantize_kernel<<<gridY, block, 0, stream>>>(a.inY, a.predY, a.wY, a.hY,
+                                                   a.resY, a.qY);
+  dct_quantize_kernel<<<gridU, block, 0, stream>>>(a.inU, a.predU, a.wU, a.hU,
+                                                   a.resU, a.qU);
+
+  dct_quantize_kernel<<<gridV, block, 0, stream>>>(a.inV, a.predV, a.wV, a.hV,
+                                                   a.resV, a.qV);
+
   nvtxRangePop();
 
-  // Dequant+IDCT (Y/U/V)
   nvtxRangePushA("dequantize_idct");
-  dequantize_idct_kernel<<<gridY, block>>>(resY, predY, wY, hY, recY, qY);
-  dequantize_idct_kernel<<<gridU, block>>>(resU, predU, wU, hU, recU, qU);
-  dequantize_idct_kernel<<<gridV, block>>>(resV, predV, wV, hV, recV, qV);
-  nvtxRangePop();
+  dequantize_idct_kernel<<<gridY, block, 0, stream>>>(a.resY, a.predY, a.wY,
+                                                      a.hY, a.recY, a.qY);
+
+  dequantize_idct_kernel<<<gridU, block, 0, stream>>>(a.resU, a.predU, a.wU,
+                                                      a.hU, a.recU, a.qU);
+
+  dequantize_idct_kernel<<<gridV, block, 0, stream>>>(a.resV, a.predV, a.wV,
+                                                      a.hV, a.recV, a.qV);
 
   nvtxRangePop();
 }
