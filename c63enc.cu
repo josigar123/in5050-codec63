@@ -257,6 +257,7 @@ int main(int argc, char **argv) {
 
     printf("Encoding frame %d, ", numframes);
     c63_encode_image(cm, image, stream_y, stream_u, stream_v);
+
     cudaStreamSynchronize(stream_y);
     cudaStreamSynchronize(stream_u);
     cudaStreamSynchronize(stream_v);
