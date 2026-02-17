@@ -20,4 +20,6 @@ void init_quantdct_constants(void);
 void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
                            cudaStream_t stream_u, cudaStream_t stream_v);
 
+struct quant_inter_args create_quant_inter_args(struct c63_common *cm,
+                                                yuv_t *image);
 #endif /* QUANTDCT_DEVICE_H_ */

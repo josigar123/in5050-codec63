@@ -92,19 +92,62 @@ void dump_image(yuv_t *image, int w, int h, FILE *fp) {
   fwrite(image->V, 1, w * h / 4, fp);
 }
 
-void reset_frame_work(struct c63_common *cm, struct frame *f) {
-  cudaMemset(f->predicted->Y, 0, cm->ypw * cm->yph * sizeof(uint8_t));
-  cudaMemset(f->predicted->U, 0, cm->upw * cm->uph * sizeof(uint8_t));
-  cudaMemset(f->predicted->V, 0, cm->vpw * cm->vph * sizeof(uint8_t));
+void reset_frame_work(reset_frame_work_args &a) {
 
-  cudaMemset(f->residuals->Ydct, 0, cm->ypw * cm->yph * sizeof(int16_t));
-  cudaMemset(f->residuals->Udct, 0, cm->upw * cm->uph * sizeof(int16_t));
-  cudaMemset(f->residuals->Vdct, 0, cm->vpw * cm->vph * sizeof(int16_t));
+  cudaMemsetAsync(a.predicted_Y, 0, a.ypw * a.yph * sizeof(uint8_t),
+                  a.stream_y);
+  cudaMemsetAsync(a.residuals_Ydct, 0, a.ypw * a.yph * sizeof(int16_t),
+                  a.stream_y);
+  cudaMemsetAsync(a.mbs_Y, 0, a.mb_rows * a.mb_cols * sizeof(struct macroblock),
+                  a.stream_y);
 
-  cudaMemset(f->mbs[Y_COMPONENT], 0,
-             cm->mb_rows * cm->mb_cols * sizeof(struct macroblock));
-  cudaMemset(f->mbs[U_COMPONENT], 0,
-             (cm->mb_rows / 2) * (cm->mb_cols / 2) * sizeof(struct macroblock));
-  cudaMemset(f->mbs[V_COMPONENT], 0,
-             (cm->mb_rows / 2) * (cm->mb_cols / 2) * sizeof(struct macroblock));
+  cudaMemsetAsync(a.predicted_U, 0, a.upw * a.uph * sizeof(uint8_t),
+                  a.stream_u);
+  cudaMemsetAsync(a.residuals_Udct, 0, a.upw * a.uph * sizeof(int16_t),
+                  a.stream_u);
+  cudaMemsetAsync(a.mbs_U, 0,
+                  (a.mb_rows / 2) * (a.mb_cols / 2) * sizeof(struct macroblock),
+                  a.stream_u);
+
+  cudaMemsetAsync(a.predicted_V, 0, a.vpw * a.vph * sizeof(uint8_t),
+                  a.stream_v);
+  cudaMemsetAsync(a.residuals_Vdct, 0, a.vpw * a.vph * sizeof(int16_t),
+                  a.stream_v);
+  cudaMemsetAsync(a.mbs_V, 0,
+                  (a.mb_rows / 2) * (a.mb_cols / 2) * sizeof(struct macroblock),
+                  a.stream_v);
+}
+
+reset_frame_work_args create_reset_frame_work_args(struct c63_common *cm,
+                                                   cudaStream_t stream_y,
+                                                   cudaStream_t stream_u,
+                                                   cudaStream_t stream_v) {
+  reset_frame_work_args a{};
+
+  a.predicted_Y = cm->curframe->predicted->Y;
+  a.residuals_Ydct = cm->curframe->residuals->Ydct;
+  a.mbs_Y = cm->curframe->mbs[Y_COMPONENT];
+  a.ypw = cm->ypw;
+  a.yph = cm->yph;
+
+  a.predicted_U = cm->curframe->predicted->U;
+  a.residuals_Udct = cm->curframe->residuals->Udct;
+  a.mbs_U = cm->curframe->mbs[U_COMPONENT];
+  a.upw = cm->upw;
+  a.uph = cm->uph;
+
+  a.predicted_V = cm->curframe->predicted->V;
+  a.residuals_Vdct = cm->curframe->residuals->Vdct;
+  a.mbs_V = cm->curframe->mbs[V_COMPONENT];
+  a.vpw = cm->vpw;
+  a.vph = cm->vph;
+
+  a.mb_rows = cm->mb_rows;
+  a.mb_cols = cm->mb_cols;
+
+  a.stream_y = stream_y;
+  a.stream_u = stream_u;
+  a.stream_v = stream_v;
+
+  return a;
 }
