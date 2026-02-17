@@ -171,7 +171,7 @@ struct c63_common *init_c63_enc(int width, int height) {
   }
 
   // Copy tables into constant memory
-  init_quantdct_constants();
+  init_quantdct_constants(cm);
 
   return cm;
 }
