@@ -16,11 +16,29 @@ __constant__ uint8_t c_zigzag_U[64];
 __constant__ uint8_t c_zigzag_V[64];
 __constant__ float c_dctlookup[8][8];
 
+__constant__ uint8_t c_quant_Y[64];
+__constant__ uint8_t c_quant_U[64];
+__constant__ uint8_t c_quant_V[64];
+
+// We need a template to get the correct quant table for kernel runs
+template <int C> __device__ __forceinline__ const uint8_t *get_quant_tbl() {
+  return (C == Y_COMPONENT)   ? c_quant_Y
+         : (C == U_COMPONENT) ? c_quant_U
+                              : c_quant_V;
+}
+
 // Called once at startup from init_c63_enc
-void init_quantdct_constants(void) {
+void init_quantdct_constants(const c63_common *cm) {
   cudaMemcpyToSymbol(c_zigzag_U, zigzag_U, sizeof(zigzag_U));
   cudaMemcpyToSymbol(c_zigzag_V, zigzag_V, sizeof(zigzag_V));
   cudaMemcpyToSymbol(c_dctlookup, dctlookup, sizeof(dctlookup));
+
+  cudaMemcpyToSymbol(c_quant_Y, cm->quanttbl[Y_COMPONENT],
+                     sizeof(cm->quanttbl[Y_COMPONENT]));
+  cudaMemcpyToSymbol(c_quant_U, cm->quanttbl[U_COMPONENT],
+                     sizeof(cm->quanttbl[U_COMPONENT]));
+  cudaMemcpyToSymbol(c_quant_V, cm->quanttbl[V_COMPONENT],
+                     sizeof(cm->quanttbl[V_COMPONENT]));
 }
 
 __device__ __forceinline__ static void dct_2d_device(const float *in,
@@ -76,7 +94,8 @@ __device__ __forceinline__ static void scale_block_device(float *in_data,
 }
 
 __device__ __forceinline__ static void
-quantize_block_device(float *in_data, float *out_data, uint8_t *quant_tbl) {
+quantize_block_device(float *in_data, float *out_data,
+                      const uint8_t *quant_tbl) {
   int zigzag;
 
   for (zigzag = 0; zigzag < 64; ++zigzag) {
@@ -91,7 +110,8 @@ quantize_block_device(float *in_data, float *out_data, uint8_t *quant_tbl) {
 }
 
 __device__ __forceinline__ static void
-dequantize_block_device(float *in_data, float *out_data, uint8_t *quant_tbl) {
+dequantize_block_device(float *in_data, float *out_data,
+                        const uint8_t *quant_tbl) {
   int zigzag;
 
   for (zigzag = 0; zigzag < 64; ++zigzag) {
@@ -106,7 +126,7 @@ dequantize_block_device(float *in_data, float *out_data, uint8_t *quant_tbl) {
 
 __device__ __forceinline__ static void
 dct_quant_block_8x8_device(int16_t *in_data, int16_t *out_data,
-                           uint8_t *quant_tbl) {
+                           const uint8_t *quant_tbl) {
 
   float mb[64], mb2[64];
 #pragma unroll
@@ -126,8 +146,8 @@ dct_quant_block_8x8_device(int16_t *in_data, int16_t *out_data,
 }
 
 __device__ __forceinline__ static void
-dequant_idct_block_8x8_device(int16_t *in_data, int16_t *out_data,
-                              uint8_t *quant_tbl) {
+dequant_idct_block_8x8_device(const int16_t *in_data, int16_t *out_data,
+                              const uint8_t *quant_tbl) {
   float mb[64], mb2[64];
 
 #pragma unroll
@@ -144,11 +164,11 @@ dequant_idct_block_8x8_device(int16_t *in_data, int16_t *out_data,
   }
 }
 
-__global__ void dequantize_idct_kernel(int16_t *__restrict__ in_data,
-                                       uint8_t *__restrict__ prediction,
+template <int C>
+__global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
+                                       const uint8_t *__restrict__ prediction,
                                        uint32_t width, uint32_t height,
-                                       uint8_t *__restrict__ out_data,
-                                       uint8_t *__restrict__ quantization) {
+                                       uint8_t *__restrict__ out_data) {
 
   int bx = blockIdx.x * blockDim.x + threadIdx.x;
   int by = blockIdx.y * blockDim.y + threadIdx.y;
@@ -164,7 +184,8 @@ __global__ void dequantize_idct_kernel(int16_t *__restrict__ in_data,
   int coeff_base = by * ((int)width * 8) + bx * 64;
 
   int16_t block[64];
-  dequant_idct_block_8x8_device(in_data + coeff_base, block, quantization);
+  dequant_idct_block_8x8_device(in_data + coeff_base, block,
+                                get_quant_tbl<C>());
 
 #pragma unroll
   for (int i = 0; i < 8; ++i) {
@@ -181,11 +202,11 @@ __global__ void dequantize_idct_kernel(int16_t *__restrict__ in_data,
   }
 }
 
-__global__ void dct_quantize_kernel(uint8_t *__restrict__ in_data,
+template <int C>
+__global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
                                     uint8_t *__restrict__ prediction,
                                     uint32_t width, uint32_t height,
-                                    int16_t *__restrict__ out_data,
-                                    uint8_t *__restrict__ quantization) {
+                                    int16_t *__restrict__ out_data) {
   int bx =
       blockIdx.x * blockDim.x + threadIdx.x; // block index in x (8x8 blocks)
   int by = blockIdx.y * blockDim.y + threadIdx.y; // block index in y
@@ -214,7 +235,7 @@ __global__ void dct_quantize_kernel(uint8_t *__restrict__ in_data,
     }
   }
 
-  dct_quant_block_8x8_device(block, out_data + coeff_base, quantization);
+  dct_quant_block_8x8_device(block, out_data + coeff_base, get_quant_tbl<C>());
 }
 
 void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
@@ -228,25 +249,25 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
              (a.hV / 8 + block.y - 1) / block.y);
 
   nvtxRangePushA("dct_quantize");
-  dct_quantize_kernel<<<gridY, block, 0, stream_y>>>(a.inY, a.predY, a.wY, a.hY,
-                                                     a.resY, a.qY);
-  dct_quantize_kernel<<<gridU, block, 0, stream_u>>>(a.inU, a.predU, a.wU, a.hU,
-                                                     a.resU, a.qU);
+  dct_quantize_kernel<Y_COMPONENT>
+      <<<gridY, block, 0, stream_y>>>(a.inY, a.predY, a.wY, a.hY, a.resY);
+  dct_quantize_kernel<U_COMPONENT>
+      <<<gridU, block, 0, stream_u>>>(a.inU, a.predU, a.wU, a.hU, a.resU);
 
-  dct_quantize_kernel<<<gridV, block, 0, stream_v>>>(a.inV, a.predV, a.wV, a.hV,
-                                                     a.resV, a.qV);
+  dct_quantize_kernel<V_COMPONENT>
+      <<<gridV, block, 0, stream_v>>>(a.inV, a.predV, a.wV, a.hV, a.resV);
 
   nvtxRangePop();
 
   nvtxRangePushA("dequantize_idct");
-  dequantize_idct_kernel<<<gridY, block, 0, stream_y>>>(a.resY, a.predY, a.wY,
-                                                        a.hY, a.recY, a.qY);
+  dequantize_idct_kernel<Y_COMPONENT>
+      <<<gridY, block, 0, stream_y>>>(a.resY, a.predY, a.wY, a.hY, a.recY);
 
-  dequantize_idct_kernel<<<gridU, block, 0, stream_u>>>(a.resU, a.predU, a.wU,
-                                                        a.hU, a.recU, a.qU);
+  dequantize_idct_kernel<U_COMPONENT>
+      <<<gridU, block, 0, stream_u>>>(a.resU, a.predU, a.wU, a.hU, a.recU);
 
-  dequantize_idct_kernel<<<gridV, block, 0, stream_v>>>(a.resV, a.predV, a.wV,
-                                                        a.hV, a.recV, a.qV);
+  dequantize_idct_kernel<V_COMPONENT>
+      <<<gridV, block, 0, stream_v>>>(a.resV, a.predV, a.wV, a.hV, a.recV);
 
   nvtxRangePop();
 }
@@ -269,10 +290,6 @@ quant_inter_args create_quant_inter_args(struct c63_common *cm, yuv_t *image) {
   a.recY = cm->curframe->recons->Y;
   a.recU = cm->curframe->recons->U;
   a.recV = cm->curframe->recons->V;
-
-  a.qY = cm->quanttbl[Y_COMPONENT];
-  a.qU = cm->quanttbl[U_COMPONENT];
-  a.qV = cm->quanttbl[V_COMPONENT];
 
   a.wY = cm->padw[Y_COMPONENT];
   a.hY = cm->padh[Y_COMPONENT];
