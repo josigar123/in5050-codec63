@@ -182,22 +182,19 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   const int tpb = 32 * warps_per_block;
   size_t mbs_Y = (size_t)a.mb_cols_Y * a.mb_rows_Y;
   size_t mbs_C = (size_t)a.mb_cols_C * a.mb_rows_C;
-  size_t blocks_Y = (mbs_Y + tpb - 1) / tpb;
-  size_t blocks_C = (mbs_C + tpb - 1) / tpb;
-
-  size_t blocks_Y1 = (mbs_Y + warps_per_block - 1) / warps_per_block;
-  size_t blocks_C1 = (mbs_C + warps_per_block - 1) / warps_per_block;
+  size_t blocks_Y = (mbs_Y + warps_per_block - 1) / warps_per_block;
+  size_t blocks_C = (mbs_C + warps_per_block - 1) / warps_per_block;
 
   nvtxRangePushA("motion_estimation");
-  me_block_8x8_kernel<<<blocks_Y1, tpb, 0, stream_y>>>(
+  me_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.orig_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y, a.h_Y,
       a.range_Y);
 
-  me_block_8x8_kernel<<<blocks_C1, tpb, 0, stream_u>>>(
+  me_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
       a.orig_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U, a.h_U,
       a.range_C);
 
-  me_block_8x8_kernel<<<blocks_C1, tpb, 0, stream_v>>>(
+  me_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.orig_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V, a.h_V,
       a.range_C);
 
