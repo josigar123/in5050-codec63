@@ -29,40 +29,42 @@ static uint32_t height;
 extern int optind;
 extern char *optarg;
 
-/* Read planar YUV frames with 4:2:0 chroma sub-sampling */
-static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
-  size_t len = 0;
+// Allocates memory for the input image
+static yuv_t *alloc_input_image(struct c63_common *cm) {
   yuv_t *image;
-
   cudaMallocManaged(&image, sizeof(yuv_t));
-
-  /* Read Y. The size of Y is the same as the size of the image. The indices
-     represents the color component (0 is Y, 1 is U, and 2 is V) */
   cudaMallocManaged(&image->Y, cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] *
                                    sizeof(uint8_t));
+  cudaMallocManaged(&image->U, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] *
+                                   sizeof(uint8_t));
+  cudaMallocManaged(&image->V, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] *
+                                   sizeof(uint8_t));
+  return image;
+}
+
+// Frees the memory for the input image
+static void free_input_image(yuv_t *image) {
+  cudaFree(image->Y);
+  cudaFree(image->U);
+  cudaFree(image->V);
+  cudaFree(image);
+}
+
+// This function reads the YUV file into memory, memory has already been
+// allocated (See helpers above)
+/* Read planar YUV frames with 4:2:0 chroma sub-sampling */
+static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image) {
+  size_t len = 0;
 
   cudaMemset(image->Y, 0,
              cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t));
-  len += fread(image->Y, 1, width * height, file);
-
-  /* Read U. Given 4:2:0 chroma sub-sampling, the size is 1/4 of Y
-     because (height/2)*(width/2) = (height*width)/4. */
-
-  cudaMallocManaged(&image->U, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] *
-                                   sizeof(uint8_t));
-
   cudaMemset(image->U, 0,
              cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t));
-  len += fread(image->U, 1, (width * height) / 4, file);
-
-  /* Read V. Given 4:2:0 chroma sub-sampling, the size is 1/4 of Y. */
-
-  cudaMallocManaged(&image->V, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] *
-                                   sizeof(uint8_t));
-
   cudaMemset(image->V, 0,
              cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t));
 
+  len += fread(image->Y, 1, width * height, file);
+  len += fread(image->U, 1, (width * height) / 4, file);
   len += fread(image->V, 1, (width * height) / 4, file);
 
   if (ferror(file)) {
@@ -70,34 +72,27 @@ static yuv_t *read_yuv(FILE *file, struct c63_common *cm) {
     exit(EXIT_FAILURE);
   }
 
-  if (feof(file)) {
-    cudaFree(image->Y);
-    cudaFree(image->U);
-    cudaFree(image->V);
-    cudaFree(image);
-
-    return NULL;
-  } else if (len != width * height * 1.5) {
+  if (feof(file))
+    return 0;
+  if (len != (size_t)(width * height * 1.5f)) {
     fprintf(stderr, "Reached end of file, but incorrect bytes read.\n");
     fprintf(stderr, "Wrong input? (height: %d width: %d)\n", height, width);
-
-    cudaFree(image->Y);
-    cudaFree(image->U);
-    cudaFree(image->V);
-    cudaFree(image);
-
-    return NULL;
+    return 0;
   }
-  return image;
+
+  return 1;
 }
 
 static void c63_encode_image(struct c63_common *cm, yuv_t *image,
                              cudaStream_t stream_y, cudaStream_t stream_u,
                              cudaStream_t stream_v) {
   /* Advance to next frame */
-  destroy_frame(cm->refframe);
+  struct frame *tmp = cm->refframe;
   cm->refframe = cm->curframe;
-  cm->curframe = create_frame(cm, image);
+  cm->curframe = tmp;
+
+  cm->curframe->orig = image;
+  reset_frame_work(cm, cm->curframe);
 
   /* Check if keyframe */
   if (cm->framenum == 0 || cm->frames_since_keyframe == cm->keyframe_interval) {
@@ -115,15 +110,11 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
 
   /* Function dump_image(), found in common.c, can be used here to check if the
    prediction is correct */
-
-  /* Function dump_image(), found in common.c, can be used here to check if the
-     prediction is correct */
 }
 
 struct c63_common *init_c63_enc(int width, int height) {
   int i;
 
-  /* calloc() sets allocated memory to zero */
   c63_common *cm;
   cudaMallocManaged(&cm, sizeof(struct c63_common));
   cudaMemset(cm, 0, sizeof(struct c63_common));
@@ -249,9 +240,24 @@ int main(int argc, char **argv) {
   cudaStreamCreate(&stream_u);
   cudaStreamCreate(&stream_v);
 
+  // Here we allocate memory for the input image once, with managed memory
+  image = alloc_input_image(cm);
+
+  // Here we create two frames, one for the reference frame and one for the
+  // current frame We allocate and memset to zero, allocation happens once, a
+  // helper will be used to reset frame work
+  struct frame *frame_a = create_frame(cm, image);
+  struct frame *frame_b = create_frame(cm, image);
+
+  // Here we set the reference frame and current frame, and initialize the frame
+  // number and frames since keyframe
+  cm->refframe = frame_a;
+  cm->curframe = frame_b;
+  cm->framenum = 0;
+  cm->frames_since_keyframe = 0;
+
   while (1) {
-    image = read_yuv(infile, cm);
-    if (!image) {
+    if (!read_yuv_into(infile, cm, image)) {
       break;
     }
 
@@ -263,11 +269,6 @@ int main(int argc, char **argv) {
     cudaStreamSynchronize(stream_v);
 
     write_frame(cm);
-
-    cudaFree(image->Y);
-    cudaFree(image->U);
-    cudaFree(image->V);
-    cudaFree(image);
 
     printf("Done!\n");
 
@@ -285,20 +286,15 @@ int main(int argc, char **argv) {
   cudaStreamDestroy(stream_u);
   cudaStreamDestroy(stream_v);
 
-  free_c63_enc(cm);
+  // We only free input image once at the end of encoding, since it is used for
+  // every frame
+  free_input_image(image);
+  destroy_frame(frame_a);
+  destroy_frame(frame_b);
+  cudaFree(cm);
+  // free_c63_enc(cm);
   fclose(outfile);
   fclose(infile);
-
-  // int i, j;
-  // for (i = 0; i < 2; ++i)
-  //{
-  //   printf("int freq[] = {");
-  //   for (j = 0; j < ARRAY_SIZE(frequencies[i]); ++j)
-  //   {
-  //     printf("%d, ", frequencies[i][j]);
-  //   }
-  //   printf("};\n");
-  // }
 
   return EXIT_SUCCESS;
 }

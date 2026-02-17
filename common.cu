@@ -91,3 +91,20 @@ void dump_image(yuv_t *image, int w, int h, FILE *fp) {
   fwrite(image->U, 1, w * h / 4, fp);
   fwrite(image->V, 1, w * h / 4, fp);
 }
+
+void reset_frame_work(struct c63_common *cm, struct frame *f) {
+  cudaMemset(f->predicted->Y, 0, cm->ypw * cm->yph * sizeof(uint8_t));
+  cudaMemset(f->predicted->U, 0, cm->upw * cm->uph * sizeof(uint8_t));
+  cudaMemset(f->predicted->V, 0, cm->vpw * cm->vph * sizeof(uint8_t));
+
+  cudaMemset(f->residuals->Ydct, 0, cm->ypw * cm->yph * sizeof(int16_t));
+  cudaMemset(f->residuals->Udct, 0, cm->upw * cm->uph * sizeof(int16_t));
+  cudaMemset(f->residuals->Vdct, 0, cm->vpw * cm->vph * sizeof(int16_t));
+
+  cudaMemset(f->mbs[Y_COMPONENT], 0,
+             cm->mb_rows * cm->mb_cols * sizeof(struct macroblock));
+  cudaMemset(f->mbs[U_COMPONENT], 0,
+             (cm->mb_rows / 2) * (cm->mb_cols / 2) * sizeof(struct macroblock));
+  cudaMemset(f->mbs[V_COMPONENT], 0,
+             (cm->mb_rows / 2) * (cm->mb_cols / 2) * sizeof(struct macroblock));
+}
