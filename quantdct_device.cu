@@ -247,3 +247,36 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
 
   nvtxRangePop();
 }
+
+quant_inter_args create_quant_inter_args(struct c63_common *cm, yuv_t *image) {
+  quant_inter_args a{};
+
+  a.inY = image->Y;
+  a.inU = image->U;
+  a.inV = image->V;
+
+  a.predY = cm->curframe->predicted->Y;
+  a.predU = cm->curframe->predicted->U;
+  a.predV = cm->curframe->predicted->V;
+
+  a.resY = cm->curframe->residuals->Ydct;
+  a.resU = cm->curframe->residuals->Udct;
+  a.resV = cm->curframe->residuals->Vdct;
+
+  a.recY = cm->curframe->recons->Y;
+  a.recU = cm->curframe->recons->U;
+  a.recV = cm->curframe->recons->V;
+
+  a.qY = cm->quanttbl[Y_COMPONENT];
+  a.qU = cm->quanttbl[U_COMPONENT];
+  a.qV = cm->quanttbl[V_COMPONENT];
+
+  a.wY = cm->padw[Y_COMPONENT];
+  a.hY = cm->padh[Y_COMPONENT];
+  a.wU = cm->padw[U_COMPONENT];
+  a.hU = cm->padh[U_COMPONENT];
+  a.wV = cm->padw[V_COMPONENT];
+  a.hV = cm->padh[V_COMPONENT];
+
+  return a;
+}

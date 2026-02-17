@@ -11,29 +11,6 @@
 
 #include "me_device.h"
 
-/*
-block1 and block2 points to the beginning of a 8x8 block in the entire frame.
-stride is the widht of the entire frame in pixels (bytes).
-
-v * stride is used to calculate the beginning of the next row. u is then used to
-index the columns of the current row.
-
-Two strides since orig is 8x8 contiguous in memory NOT the entire frame.
-ref is the entire frame.
-*/
-__device__ __forceinline__ static void
-sad_block_8x8_device(const uint8_t *block1, const uint8_t *block2, int stride1,
-                     int stride2, int *result) {
-  *result = 0;
-#pragma unroll
-  for (int v = 0; v < 8; ++v) {
-#pragma unroll
-    for (int u = 0; u < 8; ++u) {
-      *result += abs(block2[v * stride2 + u] - block1[v * stride1 + u]);
-    }
-  }
-}
-
 /* Motion estimation for 8x8 block */
 /*
   We take in all necessary parameters so we dont dereference directly from cm as
@@ -210,4 +187,54 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.pred_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V);
   nvtxRangePop();
+}
+
+motion_inter_args create_motion_inter_args(struct c63_common *cm) {
+  motion_inter_args a{};
+
+  a.is_keyframe = cm->curframe->keyframe;
+
+  // ME inputs
+  a.orig_Y = cm->curframe->orig->Y;
+  a.orig_U = cm->curframe->orig->U;
+  a.orig_V = cm->curframe->orig->V;
+
+  // Only read reference frame when inter-frame
+  if (!a.is_keyframe && cm->refframe) {
+    a.recons_Y = cm->refframe->recons->Y;
+    a.recons_U = cm->refframe->recons->U;
+    a.recons_V = cm->refframe->recons->V;
+  } else {
+    a.recons_Y = nullptr;
+    a.recons_U = nullptr;
+    a.recons_V = nullptr;
+  }
+
+  // MV outputs / MC inputs
+  a.mbs_Y = cm->curframe->mbs[Y_COMPONENT];
+  a.mbs_U = cm->curframe->mbs[U_COMPONENT];
+  a.mbs_V = cm->curframe->mbs[V_COMPONENT];
+
+  // MC outputs
+  a.pred_Y = cm->curframe->predicted->Y;
+  a.pred_U = cm->curframe->predicted->U;
+  a.pred_V = cm->curframe->predicted->V;
+
+  // Geometry
+  a.mb_cols_Y = cm->mb_cols;
+  a.mb_rows_Y = cm->mb_rows;
+  a.mb_cols_C = cm->mb_cols / 2;
+  a.mb_rows_C = cm->mb_rows / 2;
+
+  a.w_Y = cm->padw[Y_COMPONENT];
+  a.h_Y = cm->padh[Y_COMPONENT];
+  a.w_U = cm->padw[U_COMPONENT];
+  a.h_U = cm->padh[U_COMPONENT];
+  a.w_V = cm->padw[V_COMPONENT];
+  a.h_V = cm->padh[V_COMPONENT];
+
+  a.range_Y = cm->me_search_range;
+  a.range_C = cm->me_search_range / 2;
+
+  return a;
 }

@@ -21,9 +21,13 @@ struct motion_inter_args {
   int mb_cols_C, mb_rows_C;
   int w_Y, h_Y, w_U, h_U, w_V, h_V;
   int range_Y, range_C;
+
+  int is_keyframe;
 };
 
 void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
                          cudaStream_t stream_u, cudaStream_t stream_v);
+
+struct motion_inter_args create_motion_inter_args(struct c63_common *cm);
 
 #endif /* C63_ME_H_ */

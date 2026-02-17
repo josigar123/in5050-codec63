@@ -53,15 +53,20 @@ static void free_input_image(yuv_t *image) {
 // This function reads the YUV file into memory, memory has already been
 // allocated (See helpers above)
 /* Read planar YUV frames with 4:2:0 chroma sub-sampling */
-static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image) {
+static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image,
+                         cudaStream_t stream_y, cudaStream_t stream_u,
+                         cudaStream_t stream_v) {
   size_t len = 0;
+  size_t y_bytes =
+      cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t);
+  size_t u_bytes =
+      cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t);
+  size_t v_bytes =
+      cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t);
 
-  cudaMemset(image->Y, 0,
-             cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t));
-  cudaMemset(image->U, 0,
-             cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t));
-  cudaMemset(image->V, 0,
-             cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t));
+  cudaMemset(image->Y, 0, y_bytes);
+  cudaMemset(image->U, 0, u_bytes);
+  cudaMemset(image->V, 0, v_bytes);
 
   len += fread(image->Y, 1, width * height, file);
   len += fread(image->U, 1, (width * height) / 4, file);
@@ -80,6 +85,14 @@ static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image) {
     return 0;
   }
 
+  // Here we prefetch the input image to the GPU on the appropriate streams,
+  // this will be queued before other kernel launches
+  int dev = 0;
+  cudaGetDevice(&dev);
+  cudaMemPrefetchAsync(image->Y, y_bytes, dev, stream_y);
+  cudaMemPrefetchAsync(image->U, u_bytes, dev, stream_u);
+  cudaMemPrefetchAsync(image->V, v_bytes, dev, stream_v);
+
   return 1;
 }
 
@@ -87,12 +100,12 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
                              cudaStream_t stream_y, cudaStream_t stream_u,
                              cudaStream_t stream_v) {
   /* Advance to next frame */
+  /* ping pong between the two allocated frames*/
   struct frame *tmp = cm->refframe;
   cm->refframe = cm->curframe;
   cm->curframe = tmp;
 
   cm->curframe->orig = image;
-  reset_frame_work(cm, cm->curframe);
 
   /* Check if keyframe */
   if (cm->framenum == 0 || cm->frames_since_keyframe == cm->keyframe_interval) {
@@ -104,9 +117,16 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
     cm->curframe->keyframe = 0;
   }
 
+  reset_frame_work_args a =
+      create_reset_frame_work_args(cm, stream_y, stream_u, stream_v);
+  quant_inter_args q = create_quant_inter_args(cm, image);
+  motion_inter_args m = create_motion_inter_args(cm);
+
+  reset_frame_work(a);
+
   // Run the ME/MC and DCT/Quant/DeQuant/IDCT pipeline, the test for chceking if
   // we have a keyframe is inside the pipeline
-  c63_inter_gpu_pipeline(cm, image, stream_y, stream_u, stream_v);
+  c63_inter_gpu_pipeline(q, m, stream_y, stream_u, stream_v);
 
   /* Function dump_image(), found in common.c, can be used here to check if the
    prediction is correct */
@@ -257,7 +277,7 @@ int main(int argc, char **argv) {
   cm->frames_since_keyframe = 0;
 
   while (1) {
-    if (!read_yuv_into(infile, cm, image)) {
+    if (!read_yuv_into(infile, cm, image, stream_y, stream_u, stream_v)) {
       break;
     }
 
