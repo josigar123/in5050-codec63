@@ -144,10 +144,11 @@ dequant_idct_block_8x8_device(int16_t *in_data, int16_t *out_data,
   }
 }
 
-__global__ void dequantize_idct_kernel(int16_t *in_data, uint8_t *prediction,
+__global__ void dequantize_idct_kernel(int16_t *__restrict__ in_data,
+                                       uint8_t *__restrict__ prediction,
                                        uint32_t width, uint32_t height,
-                                       uint8_t *out_data,
-                                       uint8_t *quantization) {
+                                       uint8_t *__restrict__ out_data,
+                                       uint8_t *__restrict__ quantization) {
 
   int bx = blockIdx.x * blockDim.x + threadIdx.x;
   int by = blockIdx.y * blockDim.y + threadIdx.y;
@@ -180,9 +181,11 @@ __global__ void dequantize_idct_kernel(int16_t *in_data, uint8_t *prediction,
   }
 }
 
-__global__ void dct_quantize_kernel(uint8_t *in_data, uint8_t *prediction,
+__global__ void dct_quantize_kernel(uint8_t *__restrict__ in_data,
+                                    uint8_t *__restrict__ prediction,
                                     uint32_t width, uint32_t height,
-                                    int16_t *out_data, uint8_t *quantization) {
+                                    int16_t *__restrict__ out_data,
+                                    uint8_t *__restrict__ quantization) {
   int bx =
       blockIdx.x * blockDim.x + threadIdx.x; // block index in x (8x8 blocks)
   int by = blockIdx.y * blockDim.y + threadIdx.y; // block index in y

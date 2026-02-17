@@ -16,11 +16,11 @@
   We take in all necessary parameters so we dont dereference directly from cm as
   that will cause segfaults upon launching kernels.
 */
-__global__ static void me_block_8x8_kernel(const uint8_t *orig,
-                                           const uint8_t *ref,
-                                           struct macroblock *mbs, int mb_cols,
-                                           int mb_rows, int w, int h,
-                                           int range) {
+__global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
+                                           const uint8_t *__restrict__ ref,
+                                           struct macroblock *__restrict__ mbs,
+                                           int mb_cols, int mb_rows, int w,
+                                           int h, int range) {
 
   // Warp based indexing
   int lane = threadIdx.x & 31;    // 0..31 in warp
@@ -78,7 +78,7 @@ __global__ static void me_block_8x8_kernel(const uint8_t *orig,
   int best_mv_y = 0;
 
   // Mask, all lanes are participating
-  unsigned mask = 0xffffffffu;
+  unsigned mask = __activemask();
   for (y = top; y < bottom; ++y) {
     for (x = left; x < right; ++x) {
       const uint8_t *ref_block = ref + y * w + x;
