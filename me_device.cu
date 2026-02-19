@@ -36,8 +36,6 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   int mb_y = mb_linear / mb_cols;
   macroblock *mb = &mbs[mb_linear];
 
-  // Potential bug, might need to divide by 8 when calculating bounding box
-  // below
   int mx = mb_x * 8;
   int my = mb_y * 8;
 
@@ -48,27 +46,19 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   int u0 = p0 & 7, v0 = p0 >> 3;
   int u1 = p1 & 7, v1 = p1 >> 3;
 
+  // We precompute the lane offsets once
+  int off0 = v0 * w + u0;
+  int off1 = v1 * w + u1;
+
   // Cache orig pixels for current lane
   int o0 = (int)orig[(my + v0) * w + (mx + u0)];
   int o1 = (int)orig[(my + v1) * w + (mx + u1)];
 
-  int left = mb_x * 8 - range;
-  int top = mb_y * 8 - range;
-  int right = mb_x * 8 + range;
-  int bottom = mb_y * 8 + range;
-
-  if (left < 0) {
-    left = 0;
-  }
-  if (top < 0) {
-    top = 0;
-  }
-  if (right > (w - 8)) {
-    right = w - 8;
-  }
-  if (bottom > (h - 8)) {
-    bottom = h - 8;
-  }
+  // Calculate bounding box for search area and clamp if necessary
+  int left = max(0, mx - range);
+  int top = max(0, my - range);
+  int right = min(w - 8, mx + range);
+  int bottom = min(h - 8, my + range);
 
   int x, y;
 
@@ -80,12 +70,15 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   // Mask, all lanes are participating
   unsigned mask = __activemask();
   for (y = top; y < bottom; ++y) {
-    for (x = left; x < right; ++x) {
-      const uint8_t *ref_block = ref + y * w + x;
 
-      // Calculate SAD
-      int local_sad = abs((int)ref_block[v0 * w + u0] - o0) +
-                      abs((int)ref_block[v1 * w + u1] - o1);
+    // Hoist row calc to top, so not full calc is done on each iteration
+    const uint8_t *ref_row = ref + y * w;
+    for (x = left; x < right; ++x) {
+      const uint8_t *ref_block = ref_row + x; // Index into the row
+
+      // Calculate SAD with intrinsics, use the precomputed lane offsets
+      int local_sad = __sad((int)ref_block[off0], o0, 0);
+      local_sad = __sad((int)ref_block[off1], o1, local_sad);
 
       // Reduce with warp shuffle across lanes
       int sad = local_sad;
@@ -162,28 +155,36 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   size_t blocks_Y = (mbs_Y + warps_per_block - 1) / warps_per_block;
   size_t blocks_C = (mbs_C + warps_per_block - 1) / warps_per_block;
 
-  nvtxRangePushA("motion_estimation");
+  nvtxRangePushA("me_block_8x8_kernel_Y");
   me_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.orig_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y, a.h_Y,
       a.range_Y);
+  nvtxRangePop();
 
+  nvtxRangePushA("me_block_8x8_kernel_U");
   me_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
       a.orig_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U, a.h_U,
       a.range_C);
+  nvtxRangePop();
 
+  nvtxRangePushA("me_block_8x8_kernel_V");
   me_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.orig_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V, a.h_V,
       a.range_C);
-
   nvtxRangePop();
 
-  nvtxRangePushA("motion_compensation");
+  nvtxRangePushA("mc_block_8x8_kernel_Y");
   mc_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.pred_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y);
+  nvtxRangePop();
 
+  nvtxRangePushA("mc_block_8x8_kernel_U");
   mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
       a.pred_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U);
 
+  nvtxRangePop();
+
+  nvtxRangePushA("mc_block_8x8_kernel_V");
   mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.pred_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V);
   nvtxRangePop();
