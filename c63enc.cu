@@ -117,9 +117,42 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
     cm->curframe->keyframe = 0;
   }
 
+  // Prefetch reconstructed frame and macroblocks to the GPU on appropriate
+  // streams
+  int dev = 0;
+  cudaGetDevice(&dev);
+
+  size_t y_bytes =
+      cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t);
+  size_t u_bytes =
+      cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t);
+  size_t v_bytes =
+      cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t);
+
+  size_t mbs_y_bytes =
+      (cm->mb_cols) * (cm->mb_rows) * sizeof(struct macroblock);
+  size_t mbs_c_bytes =
+      (cm->mb_cols / 2) * (cm->mb_rows / 2) * sizeof(struct macroblock);
+
+  if (!cm->curframe->keyframe && cm->refframe) {
+    cudaMemPrefetchAsync(cm->refframe->recons->Y, y_bytes, dev, stream_y);
+    cudaMemPrefetchAsync(cm->refframe->recons->U, u_bytes, dev, stream_u);
+    cudaMemPrefetchAsync(cm->refframe->recons->V, v_bytes, dev, stream_v);
+  }
+
+  cudaMemPrefetchAsync(cm->curframe->mbs[Y_COMPONENT], mbs_y_bytes, dev,
+                       stream_y);
+  cudaMemPrefetchAsync(cm->curframe->mbs[U_COMPONENT], mbs_c_bytes, dev,
+                       stream_u);
+  cudaMemPrefetchAsync(cm->curframe->mbs[V_COMPONENT], mbs_c_bytes, dev,
+                       stream_v);
+
+  // Take a snapshot of arguments for passing to the pipeline and work reset
   reset_frame_work_args a =
       create_reset_frame_work_args(cm, stream_y, stream_u, stream_v);
+
   quant_inter_args q = create_quant_inter_args(cm, image);
+
   motion_inter_args m = create_motion_inter_args(cm);
 
   reset_frame_work(a);
