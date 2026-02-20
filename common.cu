@@ -96,26 +96,26 @@ void reset_frame_work(reset_frame_work_args &a) {
 
   cudaMemsetAsync(a.predicted_Y, 0, a.ypw * a.yph * sizeof(uint8_t),
                   a.stream_y);
-  cudaMemsetAsync(a.residuals_Ydct, 0, a.ypw * a.yph * sizeof(int16_t),
-                  a.stream_y);
-  cudaMemsetAsync(a.mbs_Y, 0, a.mb_rows * a.mb_cols * sizeof(struct macroblock),
-                  a.stream_y);
-
   cudaMemsetAsync(a.predicted_U, 0, a.upw * a.uph * sizeof(uint8_t),
                   a.stream_u);
-  cudaMemsetAsync(a.residuals_Udct, 0, a.upw * a.uph * sizeof(int16_t),
-                  a.stream_u);
-  cudaMemsetAsync(a.mbs_U, 0,
-                  (a.mb_rows / 2) * (a.mb_cols / 2) * sizeof(struct macroblock),
-                  a.stream_u);
-
   cudaMemsetAsync(a.predicted_V, 0, a.vpw * a.vph * sizeof(uint8_t),
                   a.stream_v);
-  cudaMemsetAsync(a.residuals_Vdct, 0, a.vpw * a.vph * sizeof(int16_t),
-                  a.stream_v);
-  cudaMemsetAsync(a.mbs_V, 0,
-                  (a.mb_rows / 2) * (a.mb_cols / 2) * sizeof(struct macroblock),
-                  a.stream_v);
+
+  if (a.is_keyframe) {
+    cudaMemsetAsync(a.mbs_Y, 0,
+                    a.mb_rows * a.mb_cols * sizeof(struct macroblock),
+                    a.stream_y);
+
+    cudaMemsetAsync(a.mbs_U, 0,
+                    (a.mb_rows / 2) * (a.mb_cols / 2) *
+                        sizeof(struct macroblock),
+                    a.stream_u);
+
+    cudaMemsetAsync(a.mbs_V, 0,
+                    (a.mb_rows / 2) * (a.mb_cols / 2) *
+                        sizeof(struct macroblock),
+                    a.stream_v);
+  }
 }
 
 reset_frame_work_args create_reset_frame_work_args(struct c63_common *cm,
@@ -149,5 +149,6 @@ reset_frame_work_args create_reset_frame_work_args(struct c63_common *cm,
   a.stream_u = stream_u;
   a.stream_v = stream_v;
 
+  a.is_keyframe = cm->curframe->keyframe;
   return a;
 }

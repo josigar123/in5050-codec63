@@ -30,6 +30,8 @@ struct reset_frame_work_args {
   cudaStream_t stream_y;
   cudaStream_t stream_u;
   cudaStream_t stream_v;
+
+  int is_keyframe;
 };
 
 // Declarations

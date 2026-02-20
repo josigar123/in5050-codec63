@@ -32,22 +32,22 @@ extern char *optarg;
 // Allocates memory for the input image
 static yuv_t *alloc_input_image(struct c63_common *cm) {
   yuv_t *image;
-  cudaMallocManaged(&image, sizeof(yuv_t));
-  cudaMallocManaged(&image->Y, cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] *
-                                   sizeof(uint8_t));
-  cudaMallocManaged(&image->U, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] *
-                                   sizeof(uint8_t));
-  cudaMallocManaged(&image->V, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] *
-                                   sizeof(uint8_t));
+  cudaMallocHost(&image, sizeof(yuv_t));
+  cudaMallocHost(&image->Y, cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] *
+                                sizeof(uint8_t));
+  cudaMallocHost(&image->U, cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] *
+                                sizeof(uint8_t));
+  cudaMallocHost(&image->V, cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] *
+                                sizeof(uint8_t));
   return image;
 }
 
 // Frees the memory for the input image
 static void free_input_image(yuv_t *image) {
-  cudaFree(image->Y);
-  cudaFree(image->U);
-  cudaFree(image->V);
-  cudaFree(image);
+  cudaFreeHost(image->Y);
+  cudaFreeHost(image->U);
+  cudaFreeHost(image->V);
+  cudaFreeHost(image);
 }
 
 // This function reads the YUV file into memory, memory has already been
@@ -85,14 +85,6 @@ static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image,
     return 0;
   }
 
-  // Here we prefetch the input image to the GPU on the appropriate streams,
-  // this will be queued before other kernel launches
-  int dev = 0;
-  cudaGetDevice(&dev);
-  cudaMemPrefetchAsync(image->Y, y_bytes, dev, stream_y);
-  cudaMemPrefetchAsync(image->U, u_bytes, dev, stream_u);
-  cudaMemPrefetchAsync(image->V, v_bytes, dev, stream_v);
-
   return 1;
 }
 
@@ -116,36 +108,6 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
   } else {
     cm->curframe->keyframe = 0;
   }
-
-  // Prefetch reconstructed frame and macroblocks to the GPU on appropriate
-  // streams
-  int dev = 0;
-  cudaGetDevice(&dev);
-
-  size_t y_bytes =
-      cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t);
-  size_t u_bytes =
-      cm->padw[U_COMPONENT] * cm->padh[U_COMPONENT] * sizeof(uint8_t);
-  size_t v_bytes =
-      cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t);
-
-  size_t mbs_y_bytes =
-      (cm->mb_cols) * (cm->mb_rows) * sizeof(struct macroblock);
-  size_t mbs_c_bytes =
-      (cm->mb_cols / 2) * (cm->mb_rows / 2) * sizeof(struct macroblock);
-
-  if (!cm->curframe->keyframe && cm->refframe) {
-    cudaMemPrefetchAsync(cm->refframe->recons->Y, y_bytes, dev, stream_y);
-    cudaMemPrefetchAsync(cm->refframe->recons->U, u_bytes, dev, stream_u);
-    cudaMemPrefetchAsync(cm->refframe->recons->V, v_bytes, dev, stream_v);
-  }
-
-  cudaMemPrefetchAsync(cm->curframe->mbs[Y_COMPONENT], mbs_y_bytes, dev,
-                       stream_y);
-  cudaMemPrefetchAsync(cm->curframe->mbs[U_COMPONENT], mbs_c_bytes, dev,
-                       stream_u);
-  cudaMemPrefetchAsync(cm->curframe->mbs[V_COMPONENT], mbs_c_bytes, dev,
-                       stream_v);
 
   // Take a snapshot of arguments for passing to the pipeline and work reset
   reset_frame_work_args a =
