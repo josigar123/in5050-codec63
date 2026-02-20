@@ -22,10 +22,14 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
                                            int mb_cols, int mb_rows, int w,
                                            int h, int range) {
 
+  extern __shared__ uint8_t ref_tile[];
+
   // Warp based indexing
   int lane = threadIdx.x & 31;    // 0..31 in warp
-  int warp_id = threadIdx.x >> 5; // warp index inside block
-  int warps_per_block = blockDim.x >> 5;
+  int warp_id = threadIdx.x >> 5; // warp index inside block (which warp am i
+                                  // in, if we have multiple warps per block)
+  int warps_per_block =
+      blockDim.x >> 5; // How many warps are there in the block
 
   int num_mbs = mb_cols * mb_rows;
   int mb_linear = blockIdx.x * warps_per_block + warp_id;
@@ -46,10 +50,6 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   int u0 = p0 & 7, v0 = p0 >> 3;
   int u1 = p1 & 7, v1 = p1 >> 3;
 
-  // We precompute the lane offsets once
-  int off0 = v0 * w + u0;
-  int off1 = v1 * w + u1;
-
   // Cache orig pixels for current lane
   int o0 = (int)orig[(my + v0) * w + (mx + u0)];
   int o1 = (int)orig[(my + v1) * w + (mx + u1)];
@@ -60,28 +60,46 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   int right = min(w - 8, mx + range);
   int bottom = min(h - 8, my + range);
 
-  int x, y;
+  // Shared tile dimensions
+  int tile_w = 8 + 2 * range;
+
+  // Pointer offset per warp
+  uint8_t *warp_tile = ref_tile + warp_id * tile_w * tile_w;
+
+  // Load ref tile into shared mem
+  for (int i = lane; i < tile_w * tile_w; i += 32) {
+    int tx = i % tile_w;
+    int ty = i / tile_w;
+
+    int gx = left + tx;
+    int gy = top + ty;
+
+    warp_tile[i] = ref[gy * w + gx];
+  }
+
+  // Sync the warp lanes
+  __syncwarp();
 
   int best_sad = INT_MAX;
-  // Write to stack memory, then write to managed memory at the end
+  // Write to register memory, then write to managed memory at the end
   int best_mv_x = 0;
   int best_mv_y = 0;
 
   // Mask, all lanes are participating
   unsigned mask = __activemask();
-  for (y = top; y < bottom; ++y) {
+  for (int y = top; y <= bottom; ++y) {
+    for (int x = left; x <= right; ++x) {
+      int tile_x = x - left;
+      int tile_y = y - top;
 
-    // Hoist row calc to top, so not full calc is done on each iteration
-    const uint8_t *ref_row = ref + y * w;
-    for (x = left; x < right; ++x) {
-      const uint8_t *ref_block = ref_row + x; // Index into the row
+      // Read from shared memory instead of RAM
+      uint8_t r0 = warp_tile[(tile_y + v0) * tile_w + (tile_x + u0)];
+      uint8_t r1 = warp_tile[(tile_y + v1) * tile_w + (tile_x + u1)];
 
-      // Calculate SAD with intrinsics, use the precomputed lane offsets
-      int local_sad = __sad((int)ref_block[off0], o0, 0);
-      local_sad = __sad((int)ref_block[off1], o1, local_sad);
+      int sad = __sad((int)r0, o0, 0);
+      sad = __sad((int)r1, o1, sad);
 
       // Reduce with warp shuffle across lanes
-      int sad = local_sad;
       sad += __shfl_down_sync(mask, sad, 16);
       sad += __shfl_down_sync(mask, sad, 8);
       sad += __shfl_down_sync(mask, sad, 4);
@@ -96,12 +114,6 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
     }
   }
 
-  /* Here, there should be a threshold on SAD that checks if the motion vector
-     is cheaper than intraprediction. We always assume MV to be beneficial */
-
-  /* printf("Using motion vector (%d, %d) with SAD %d\n", mb->mv_x, mb->mv_y,
-     best_sad); */
-
   if (lane == 0) {
     mb->mv_x = (int8_t)best_mv_x;
     mb->mv_y = (int8_t)best_mv_y;
@@ -109,8 +121,6 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   }
 }
 
-// DANGER: Is also used by the decoder
-/* Motion compensation for 8x8 block */
 __global__ static void mc_block_8x8_kernel(uint8_t *predicted,
                                            const uint8_t *ref,
                                            const struct macroblock *mbs,
@@ -154,39 +164,39 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   size_t mbs_C = (size_t)a.mb_cols_C * a.mb_rows_C;
   size_t blocks_Y = (mbs_Y + warps_per_block - 1) / warps_per_block;
   size_t blocks_C = (mbs_C + warps_per_block - 1) / warps_per_block;
+  int tile_w_Y = 8 + 2 * a.range_Y;
+  size_t shm_Y = warps_per_block * tile_w_Y * tile_w_Y * sizeof(uint8_t);
 
-  nvtxRangePushA("me_block_8x8_kernel_Y");
-  me_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
+  int tile_w_C = 8 + 2 * a.range_C;
+  size_t shm_C = warps_per_block * tile_w_C * tile_w_C * sizeof(uint8_t);
+
+  nvtxRangePushA("motion-inter");
+  nvtxRangePushA("me");
+  me_block_8x8_kernel<<<blocks_Y, tpb, shm_Y, stream_y>>>(
       a.orig_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y, a.h_Y,
       a.range_Y);
-  nvtxRangePop();
 
-  nvtxRangePushA("me_block_8x8_kernel_U");
-  me_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
+  me_block_8x8_kernel<<<blocks_C, tpb, shm_C, stream_u>>>(
       a.orig_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U, a.h_U,
       a.range_C);
-  nvtxRangePop();
 
-  nvtxRangePushA("me_block_8x8_kernel_V");
-  me_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
+  me_block_8x8_kernel<<<blocks_C, tpb, shm_C, stream_v>>>(
       a.orig_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V, a.h_V,
       a.range_C);
+
   nvtxRangePop();
 
-  nvtxRangePushA("mc_block_8x8_kernel_Y");
+  nvtxRangePushA("mc");
   mc_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.pred_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y);
-  nvtxRangePop();
 
-  nvtxRangePushA("mc_block_8x8_kernel_U");
   mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
       a.pred_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U);
 
-  nvtxRangePop();
-
-  nvtxRangePushA("mc_block_8x8_kernel_V");
   mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.pred_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V);
+
+  nvtxRangePop();
   nvtxRangePop();
 }
 

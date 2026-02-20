@@ -219,8 +219,6 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   int py = by * 8;
   int pixel_base = py * (int)width + px;
 
-  // Preserve your existing coeff layout:
-  // row stride in coeff space = width * 8, each 8x8 coeff block = 64 entries
   int coeff_base = by * ((int)width * 8) + bx * 64;
 
   int16_t block[64];
@@ -247,34 +245,29 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
   dim3 gridV((a.wV / 8 + block.x - 1) / block.x,
              (a.hV / 8 + block.y - 1) / block.y);
 
-  nvtxRangePushA("dct_quantize_kernel_Y");
+  nvtxRangePushA("dct_idct_inter");
+  nvtxRangePushA("dct_quantize");
   dct_quantize_kernel<Y_COMPONENT>
       <<<gridY, block, 0, stream_y>>>(a.inY, a.predY, a.wY, a.hY, a.resY);
-  nvtxRangePop();
 
-  nvtxRangePushA("dct_quantize_kernel_U");
   dct_quantize_kernel<U_COMPONENT>
       <<<gridU, block, 0, stream_u>>>(a.inU, a.predU, a.wU, a.hU, a.resU);
-  nvtxRangePop();
 
-  nvtxRangePushA("dct_quantize_kernel_V");
   dct_quantize_kernel<V_COMPONENT>
       <<<gridV, block, 0, stream_v>>>(a.inV, a.predV, a.wV, a.hV, a.resV);
-  nvtxRangePop();
 
-  nvtxRangePushA("dequantize_idct_kernel_Y");
+  nvtxRangePop();
+  nvtxRangePushA("dequantize_idct");
   dequantize_idct_kernel<Y_COMPONENT>
       <<<gridY, block, 0, stream_y>>>(a.resY, a.predY, a.wY, a.hY, a.recY);
-  nvtxRangePop();
 
-  nvtxRangePushA("dequantize_idct_kernel_U");
   dequantize_idct_kernel<U_COMPONENT>
       <<<gridU, block, 0, stream_u>>>(a.resU, a.predU, a.wU, a.hU, a.recU);
-  nvtxRangePop();
 
-  nvtxRangePushA("dequantize_idct_kernel_V");
   dequantize_idct_kernel<V_COMPONENT>
       <<<gridV, block, 0, stream_v>>>(a.resV, a.predV, a.wV, a.hV, a.recV);
+  nvtxRangePop();
+
   nvtxRangePop();
 }
 
