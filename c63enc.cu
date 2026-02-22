@@ -268,6 +268,14 @@ int main(int argc, char **argv) {
 
   struct c63_common *cm = init_c63_enc(width, height);
   cm->e_ctx.fp = outfile;
+  const size_t FRAME_BUF_SIZE = 8 * 1024 * 1024;
+  cm->e_ctx.buf = (uint8_t *)malloc(FRAME_BUF_SIZE);
+  if (!cm->e_ctx.buf) {
+    fprintf(stderr, "Failed to allocate frame output buffer\n");
+    exit(EXIT_FAILURE);
+  }
+  cm->e_ctx.buf_capacity = FRAME_BUF_SIZE;
+  cm->e_ctx.buf_pos = 0;
 
   input_file = argv[optind];
 
@@ -321,7 +329,9 @@ int main(int argc, char **argv) {
     cudaStreamSynchronize(stream_u);
     cudaStreamSynchronize(stream_v);
 
+    nvtxRangePush("write_frame");
     write_frame(cm);
+    nvtxRangePop();
 
     printf("Done!\n");
 
@@ -344,6 +354,7 @@ int main(int argc, char **argv) {
   free_input_image(image);
   destroy_frame(frame_a);
   destroy_frame(frame_b);
+  free(cm->e_ctx.buf);
   cudaFree(cm);
   // free_c63_enc(cm);
   fclose(outfile);
