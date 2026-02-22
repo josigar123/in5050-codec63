@@ -63,6 +63,9 @@ typedef struct dct dct_t;
 struct entropy_ctx
 {
   FILE *fp;
+  uint8_t *buf;
+  size_t buf_pos;
+  size_t buf_capacity;
   unsigned int bit_buffer;
   unsigned int bit_buffer_width;
 };

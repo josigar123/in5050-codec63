@@ -18,6 +18,30 @@ void put_byte(FILE *fp, int byte)
   }
 }
 
+void put_byte_buf(struct entropy_ctx *c, uint8_t b)
+{
+  if (c->buf_pos >= c->buf_capacity)
+  {
+    fprintf(stderr, "Output buffer overflow\n");
+    exit(EXIT_FAILURE);
+  }
+
+  c->buf[c->buf_pos++] = b;
+}
+
+void flush_frame_to_file(struct entropy_ctx *c)
+{
+  size_t written = fwrite(c->buf, 1, c->buf_pos, c->fp);
+
+  if (written != c->buf_pos)
+  {
+    fprintf(stderr, "Error flushing frame buffer to file\n");
+    exit(EXIT_FAILURE);
+  }
+
+  c->buf_pos = 0;
+}
+
 void put_bytes(FILE *fp, const void* data, unsigned int len)
 {
   size_t n = fwrite(data, 1, (size_t) len, fp);
@@ -79,9 +103,9 @@ void put_bits(struct entropy_ctx *c, uint16_t bits, uint8_t n)
   {
     uint8_t b = (uint8_t)(c->bit_buffer >> (c->bit_buffer_width - 8));
 
-    put_byte(c->fp, b);
+    put_byte_buf(c, b);
 
-    if(b == 0xff) { put_byte(c->fp, 0); }
+    if(b == 0xff) { put_byte_buf(c, 0); }
 
     c->bit_buffer_width -= 8;
   }
@@ -118,9 +142,9 @@ void flush_bits(struct entropy_ctx *c)
   if(c->bit_buffer > 0)
   {
     uint8_t b = c->bit_buffer << (8 - c->bit_buffer_width);
-    put_byte(c->fp, b);
+    put_byte_buf(c, b);
 
-    if(b == 0xff) { put_byte(c->fp, 0); }
+    if(b == 0xff) { put_byte_buf(c, 0); }
   }
 
   c->bit_buffer = 0;
