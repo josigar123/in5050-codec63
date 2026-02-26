@@ -87,7 +87,6 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
 
   // Mask, all lanes are participating
   unsigned mask = __activemask();
-
   for (int y = top; y <= bottom; ++y) {
     for (int x = left; x <= right; ++x) {
       int tile_x = x - left;
@@ -159,7 +158,7 @@ __global__ static void mc_block_8x8_kernel(uint8_t *predicted,
 void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
                          cudaStream_t stream_u, cudaStream_t stream_v) {
 
-  const int warps_per_block = 4;
+  const int warps_per_block = 1;
   const int tpb = 32 * warps_per_block;
   size_t mbs_Y = (size_t)a.mb_cols_Y * a.mb_rows_Y;
   size_t mbs_C = (size_t)a.mb_cols_C * a.mb_rows_C;
@@ -171,7 +170,8 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   int tile_w_C = 8 + 2 * a.range_C;
   size_t shm_C = warps_per_block * tile_w_C * tile_w_C * sizeof(uint8_t);
 
-  nvtxRangePushA("me_mc_inter");
+  nvtxRangePushA("motion-inter");
+  nvtxRangePushA("me");
   me_block_8x8_kernel<<<blocks_Y, tpb, shm_Y, stream_y>>>(
       a.orig_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y, a.h_Y,
       a.range_Y);
@@ -184,6 +184,9 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
       a.orig_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V, a.h_V,
       a.range_C);
 
+  nvtxRangePop();
+
+  nvtxRangePushA("mc");
   mc_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.pred_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y);
 
@@ -193,6 +196,7 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.pred_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V);
 
+  nvtxRangePop();
   nvtxRangePop();
 }
 

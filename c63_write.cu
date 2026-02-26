@@ -26,70 +26,70 @@ static inline void put_bytes_buf_ctx(struct entropy_ctx *c, const void *data,
 
 /* Start of Image (SOI) marker, contains no payload. */
 static void write_SOI(struct c63_common *cm) {
-  put_byte_buf(cm->e_ctx, JPEG_DEF_MARKER);
-  put_byte_buf(cm->e_ctx, JPEG_SOI_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_SOI_MARKER);
 }
 
 /* Define Quatization Tables (DQT) marker, contains the tables as payload. */
 static void write_DQT(struct c63_common *cm) {
   int16_t size = 2 + (3 * 64 + 1);
 
-  put_byte_buf(cm->e_ctx, JPEG_DEF_MARKER);
-  put_byte_buf(cm->e_ctx, JPEG_DQT_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DQT_MARKER);
 
   /* Length of segment */
-  put_byte_buf(cm->e_ctx, size >> 8);
-  put_byte_buf(cm->e_ctx, size & 0xff);
+  put_byte_buf(&cm->e_ctx, size >> 8);
+  put_byte_buf(&cm->e_ctx, size & 0xff);
 
   /* Quatization table for Y component */
-  put_byte_buf(cm->e_ctx, Y_COMPONENT);
-  put_bytes_buf_ctx(cm->e_ctx, cm->quanttbl[Y_COMPONENT], 64);
+  put_byte_buf(&cm->e_ctx, Y_COMPONENT);
+  put_bytes_buf_ctx(&cm->e_ctx, cm->quanttbl[Y_COMPONENT], 64);
 
   /* Quantization table for U component */
-  put_byte_buf(cm->e_ctx, U_COMPONENT);
-  put_bytes_buf_ctx(cm->e_ctx, cm->quanttbl[U_COMPONENT], 64);
+  put_byte_buf(&cm->e_ctx, U_COMPONENT);
+  put_bytes_buf_ctx(&cm->e_ctx, cm->quanttbl[U_COMPONENT], 64);
 
   /* Quantization table for V component */
-  put_byte_buf(cm->e_ctx, V_COMPONENT);
-  put_bytes_buf_ctx(cm->e_ctx, cm->quanttbl[V_COMPONENT], 64);
+  put_byte_buf(&cm->e_ctx, V_COMPONENT);
+  put_bytes_buf_ctx(&cm->e_ctx, cm->quanttbl[V_COMPONENT], 64);
 }
 
 /* Start of Frame (SOF) marker with baseline DCT (aka SOF0). */
 static void write_SOF0(struct c63_common *cm) {
   int16_t size = 8 + 3 * COLOR_COMPONENTS + 1;
 
-  put_byte_buf(cm->e_ctx, JPEG_DEF_MARKER);
-  put_byte_buf(cm->e_ctx, JPEG_SOF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_SOF_MARKER);
 
   /* Lenght of segment */
-  put_byte_buf(cm->e_ctx, size >> 8);
-  put_byte_buf(cm->e_ctx, size & 0xff);
+  put_byte_buf(&cm->e_ctx, size >> 8);
+  put_byte_buf(&cm->e_ctx, size & 0xff);
 
   /* Precision */
-  put_byte_buf(cm->e_ctx, 8);
+  put_byte_buf(&cm->e_ctx, 8);
 
   /* Width and height */
-  put_byte_buf(cm->e_ctx, cm->height >> 8);
-  put_byte_buf(cm->e_ctx, cm->height & 0xff);
-  put_byte_buf(cm->e_ctx, cm->width >> 8);
-  put_byte_buf(cm->e_ctx, cm->width & 0xff);
+  put_byte_buf(&cm->e_ctx, cm->height >> 8);
+  put_byte_buf(&cm->e_ctx, cm->height & 0xff);
+  put_byte_buf(&cm->e_ctx, cm->width >> 8);
+  put_byte_buf(&cm->e_ctx, cm->width & 0xff);
 
-  put_byte_buf(cm->e_ctx, COLOR_COMPONENTS);
+  put_byte_buf(&cm->e_ctx, COLOR_COMPONENTS);
 
-  put_byte_buf(cm->e_ctx, 1);    /* Component id */
-  put_byte_buf(cm->e_ctx, 0x22); /* hor | ver sampling factor */
-  put_byte_buf(cm->e_ctx, 0);    /* Quant. tbl. id */
+  put_byte_buf(&cm->e_ctx, 1);    /* Component id */
+  put_byte_buf(&cm->e_ctx, 0x22); /* hor | ver sampling factor */
+  put_byte_buf(&cm->e_ctx, 0);    /* Quant. tbl. id */
 
-  put_byte_buf(cm->e_ctx, 2);    /* Component id */
-  put_byte_buf(cm->e_ctx, 0x11); /* hor | ver sampling factor */
-  put_byte_buf(cm->e_ctx, 1);    /* Quant. tbl. id */
+  put_byte_buf(&cm->e_ctx, 2);    /* Component id */
+  put_byte_buf(&cm->e_ctx, 0x11); /* hor | ver sampling factor */
+  put_byte_buf(&cm->e_ctx, 1);    /* Quant. tbl. id */
 
-  put_byte_buf(cm->e_ctx, 3);    /* Component id */
-  put_byte_buf(cm->e_ctx, 0x11); /* hor | ver sampling factor */
-  put_byte_buf(cm->e_ctx, 2);    /* Quant. tbl. id */
+  put_byte_buf(&cm->e_ctx, 3);    /* Component id */
+  put_byte_buf(&cm->e_ctx, 0x11); /* hor | ver sampling factor */
+  put_byte_buf(&cm->e_ctx, 2);    /* Quant. tbl. id */
 
   /* Is this a keyframe or not? */
-  put_byte_buf(cm->e_ctx, cm->curframe->keyframe);
+  put_byte_buf(&cm->e_ctx, cm->curframe->keyframe);
 }
 
 static void write_DHT_HTS(struct c63_common *cm, uint8_t id, uint8_t *numlength,
@@ -101,9 +101,9 @@ static void write_DHT_HTS(struct c63_common *cm, uint8_t id, uint8_t *numlength,
     n += numlength[i];
   }
 
-  put_byte_buf(cm->e_ctx, id);
-  put_bytes_buf_ctx(cm->e_ctx, numlength, 16);
-  put_bytes_buf_ctx(cm->e_ctx, data, n);
+  put_byte_buf(&cm->e_ctx, id);
+  put_bytes_buf_ctx(&cm->e_ctx, numlength, 16);
+  put_bytes_buf_ctx(&cm->e_ctx, data, n);
 }
 
 /* Define Huffman Table (DHT) marker, the payload is the Huffman table
@@ -111,12 +111,12 @@ static void write_DHT_HTS(struct c63_common *cm, uint8_t id, uint8_t *numlength,
 static void write_DHT(struct c63_common *cm) {
   int16_t size = 0x01A2; /* 2 + n*(17+mi); */
 
-  put_byte_buf(cm->e_ctx, JPEG_DEF_MARKER);
-  put_byte_buf(cm->e_ctx, JPEG_DHT_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DHT_MARKER);
 
   /* Length of segment */
-  put_byte_buf(cm->e_ctx, size >> 8);
-  put_byte_buf(cm->e_ctx, size & 0xff);
+  put_byte_buf(&cm->e_ctx, size >> 8);
+  put_byte_buf(&cm->e_ctx, size & 0xff);
 
   /* Write the four huffman table specifications */
   /* DC table 0 */
@@ -134,31 +134,31 @@ static void write_DHT(struct c63_common *cm) {
 static void write_SOS(struct c63_common *cm) {
   int16_t size = 6 + 2 * COLOR_COMPONENTS;
 
-  put_byte_buf(cm->e_ctx, JPEG_DEF_MARKER);
-  put_byte_buf(cm->e_ctx, JPEG_SOS_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_SOS_MARKER);
 
   /* Length of the segment */
-  put_byte_buf(cm->e_ctx, size >> 8);
-  put_byte_buf(cm->e_ctx, size & 0xff);
+  put_byte_buf(&cm->e_ctx, size >> 8);
+  put_byte_buf(&cm->e_ctx, size & 0xff);
 
-  put_byte_buf(cm->e_ctx, COLOR_COMPONENTS);
+  put_byte_buf(&cm->e_ctx, COLOR_COMPONENTS);
 
-  put_byte_buf(cm->e_ctx, 1);    /* Component id */
-  put_byte_buf(cm->e_ctx, 0x00); /* DC | AC huff tbl */
-  put_byte_buf(cm->e_ctx, 2);    /* Component id */
-  put_byte_buf(cm->e_ctx, 0x11); /* DC | AC huff tbl */
-  put_byte_buf(cm->e_ctx, 3);    /* Component id */
-  put_byte_buf(cm->e_ctx, 0x11); /* DC | AC huff tbl */
+  put_byte_buf(&cm->e_ctx, 1);    /* Component id */
+  put_byte_buf(&cm->e_ctx, 0x00); /* DC | AC huff tbl */
+  put_byte_buf(&cm->e_ctx, 2);    /* Component id */
+  put_byte_buf(&cm->e_ctx, 0x11); /* DC | AC huff tbl */
+  put_byte_buf(&cm->e_ctx, 3);    /* Component id */
+  put_byte_buf(&cm->e_ctx, 0x11); /* DC | AC huff tbl */
 
-  put_byte_buf(cm->e_ctx, 0);  /* ss, first AC */
-  put_byte_buf(cm->e_ctx, 63); /* se, last AC */
-  put_byte_buf(cm->e_ctx, 0);  /* ah | al */
+  put_byte_buf(&cm->e_ctx, 0);  /* ss, first AC */
+  put_byte_buf(&cm->e_ctx, 63); /* se, last AC */
+  put_byte_buf(&cm->e_ctx, 0);  /* ah | al */
 }
 
 /* End of Image (EOI) marker, contains no payload. */
 static void write_EOI(struct c63_common *cm) {
-  put_byte_buf(cm->e_ctx, JPEG_DEF_MARKER);
-  put_byte_buf(cm->e_ctx, JPEG_EOI_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  put_byte_buf(&cm->e_ctx, JPEG_EOI_MARKER);
 }
 
 static inline uint8_t bit_width(int16_t i) {
@@ -187,7 +187,7 @@ static void write_block(struct c63_common *cm, int16_t *in_data, uint32_t width,
            ->mbs[channel][voffset / 8 * cm->padw[channel] / 8 + uoffset / 8];
 
   /* Use inter pred? */
-  put_bits(cm->e_ctx, mb->use_mv, 1);
+  put_bits(&cm->e_ctx, mb->use_mv, 1);
 
   if (mb->use_mv) {
     int reuse_prev_mv = 0;
@@ -197,7 +197,7 @@ static void write_block(struct c63_common *cm, int16_t *in_data, uint32_t width,
       reuse_prev_mv = 1;
     }
 
-    put_bits(cm->e_ctx, reuse_prev_mv, 1);
+    put_bits(&cm->e_ctx, reuse_prev_mv, 1);
 
     if (!reuse_prev_mv) {
       uint8_t sz;
@@ -210,8 +210,8 @@ static void write_block(struct c63_common *cm, int16_t *in_data, uint32_t width,
         --val;
       }
 
-      put_bits(cm->e_ctx, MVVLC[sz], MVVLC_Size[sz]);
-      put_bits(cm->e_ctx, val, sz);
+      put_bits(&cm->e_ctx, MVVLC[sz], MVVLC_Size[sz]);
+      put_bits(&cm->e_ctx, val, sz);
       /* ++frequencies[cc][sz]; */
 
       /* Encode MV y-coord */
@@ -221,8 +221,8 @@ static void write_block(struct c63_common *cm, int16_t *in_data, uint32_t width,
         --val;
       }
 
-      put_bits(cm->e_ctx, MVVLC[sz], MVVLC_Size[sz]);
-      put_bits(cm->e_ctx, val, sz);
+      put_bits(&cm->e_ctx, MVVLC[sz], MVVLC_Size[sz]);
+      put_bits(&cm->e_ctx, val, sz);
       /* ++frequencies[cc][sz]; */
     }
   }
@@ -256,12 +256,12 @@ static void write_block(struct c63_common *cm, int16_t *in_data, uint32_t width,
   *prev_DC = block[0];
 
   uint8_t size = bit_width(dc);
-  put_bits(cm->e_ctx, DCVLC[cc][size], DCVLC_Size[cc][size]);
+  put_bits(&cm->e_ctx, DCVLC[cc][size], DCVLC_Size[cc][size]);
 
   if (dc < 0) {
     dc = dc - 1;
   }
-  put_bits(cm->e_ctx, dc, size);
+  put_bits(&cm->e_ctx, dc, size);
 
   /* find the last nonzero entry of the ac-coefficients */
   for (j = 64; j > 1 && !block[j - 1]; j--)
@@ -272,26 +272,26 @@ static void write_block(struct c63_common *cm, int16_t *in_data, uint32_t width,
     int16_t ac = block[i];
     if (ac == 0) {
       if (++num_ac == 16) {
-        put_bits(cm->e_ctx, ACVLC[cc][15][0], ACVLC_Size[cc][15][0]);
+        put_bits(&cm->e_ctx, ACVLC[cc][15][0], ACVLC_Size[cc][15][0]);
         num_ac = 0;
       }
     } else {
       uint8_t size = bit_width(ac);
-      put_bits(cm->e_ctx, ACVLC[cc][num_ac][size],
+      put_bits(&cm->e_ctx, ACVLC[cc][num_ac][size],
                ACVLC_Size[cc][num_ac][size]);
 
       if (ac < 0) {
         --ac;
       }
 
-      put_bits(cm->e_ctx, ac, size);
+      put_bits(&cm->e_ctx, ac, size);
       num_ac = 0;
     }
   }
 
   /* Put end of block marker */
   if (j < 64) {
-    put_bits(cm->e_ctx, ACVLC[cc][0][0], ACVLC_Size[cc][0][0]);
+    put_bits(&cm->e_ctx, ACVLC[cc][0][0], ACVLC_Size[cc][0][0]);
   }
 }
 
@@ -340,11 +340,11 @@ static void write_interleaved_data(struct c63_common *cm) {
     }
   }
 
-  flush_bits(cm->e_ctx);
+  flush_bits(&cm->e_ctx);
 }
 
 void write_frame(struct c63_common *cm) {
-  cm->e_ctx->buf_pos = 0;
+  cm->e_ctx.buf_pos = 0;
 
   /* Write headers */
 
@@ -364,5 +364,5 @@ void write_frame(struct c63_common *cm) {
   /* End Of Image */
   write_EOI(cm);
 
-  flush_frame_to_file(cm->e_ctx);
+  flush_frame_to_file(&cm->e_ctx);
 }

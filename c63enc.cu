@@ -12,7 +12,6 @@
 #include "c63.h"
 #include "c63_inter_gpu_pipeline.h"
 #include "c63_write.h"
-// #include "c63_write_orig.h"
 #include "common.h"
 #include "nvtx3/nvToolsExt.h"
 #include "quantdct_device.h"
@@ -65,10 +64,9 @@ static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image,
   size_t v_bytes =
       cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t);
 
-  // As image in pinned host memory we can just use normal memset
-  memset(image->Y, 0, y_bytes);
-  memset(image->U, 0, u_bytes);
-  memset(image->V, 0, v_bytes);
+  cudaMemset(image->Y, 0, y_bytes);
+  cudaMemset(image->U, 0, u_bytes);
+  cudaMemset(image->V, 0, v_bytes);
 
   len += fread(image->Y, 1, width * height, file);
   len += fread(image->U, 1, (width * height) / 4, file);
@@ -135,12 +133,6 @@ struct c63_common *init_c63_enc(int width, int height) {
   c63_common *cm;
   cudaMallocManaged(&cm, sizeof(struct c63_common));
   cudaMemset(cm, 0, sizeof(struct c63_common));
-
-  cm->e_ctx = (struct entropy_ctx *)calloc(1, sizeof(struct entropy_ctx));
-  if (!cm->e_ctx) {
-    fprintf(stderr, "Failed to allocate entropy context\n");
-    exit(EXIT_FAILURE);
-  }
 
   cm->width = width;
   cm->height = height;
@@ -237,15 +229,15 @@ int main(int argc, char **argv) {
   }
 
   struct c63_common *cm = init_c63_enc(width, height);
-  cm->e_ctx->fp = outfile;
+  cm->e_ctx.fp = outfile;
   const size_t FRAME_BUF_SIZE = 8 * 1024 * 1024;
-  cm->e_ctx->buf = (uint8_t *)malloc(FRAME_BUF_SIZE);
-  if (!cm->e_ctx->buf) {
+  cm->e_ctx.buf = (uint8_t *)malloc(FRAME_BUF_SIZE);
+  if (!cm->e_ctx.buf) {
     fprintf(stderr, "Failed to allocate frame output buffer\n");
     exit(EXIT_FAILURE);
   }
-  cm->e_ctx->buf_capacity = FRAME_BUF_SIZE;
-  cm->e_ctx->buf_pos = 0;
+  cm->e_ctx.buf_capacity = FRAME_BUF_SIZE;
+  cm->e_ctx.buf_pos = 0;
 
   input_file = argv[optind];
 
@@ -287,10 +279,7 @@ int main(int argc, char **argv) {
   cm->framenum = 0;
   cm->frames_since_keyframe = 0;
 
-  char frame_name[100];
   while (1) {
-    snprintf(frame_name, sizeof(frame_name), "Frame %d", numframes);
-    nvtxRangePush(frame_name);
     if (!read_yuv_into(infile, cm, image, stream_y, stream_u, stream_v)) {
       break;
     }
@@ -316,7 +305,6 @@ int main(int argc, char **argv) {
     if (limit_numframes && numframes >= limit_numframes) {
       break;
     }
-    nvtxRangePop();
   }
 
   cudaStreamDestroy(stream_y);
@@ -328,8 +316,7 @@ int main(int argc, char **argv) {
   free_input_image(image);
   destroy_frame(frame_a);
   destroy_frame(frame_b);
-  free(cm->e_ctx->buf);
-  free(cm->e_ctx);
+  free(cm->e_ctx.buf);
   cudaFree(cm);
   // free_c63_enc(cm);
   fclose(outfile);
