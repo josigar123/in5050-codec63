@@ -40,18 +40,16 @@
 #define HUFF_AC_ZERO 16
 #define HUFF_AC_SIZE 11
 
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-struct yuv
-{
+struct yuv {
   uint8_t *Y;
   uint8_t *U;
   uint8_t *V;
 };
 
-struct dct
-{
+struct dct {
   int16_t *Ydct;
   int16_t *Udct;
   int16_t *Vdct;
@@ -60,8 +58,7 @@ struct dct
 typedef struct yuv yuv_t;
 typedef struct dct dct_t;
 
-struct entropy_ctx
-{
+struct entropy_ctx {
   FILE *fp;
   uint8_t *buf;
   size_t buf_pos;
@@ -70,26 +67,23 @@ struct entropy_ctx
   unsigned int bit_buffer_width;
 };
 
-struct macroblock
-{
+struct macroblock {
   int use_mv;
   int8_t mv_x, mv_y;
 };
 
-struct frame
-{
-  yuv_t *orig;        // Original input image
-  yuv_t *recons;      // Reconstructed image
-  yuv_t *predicted;   // Predicted frame from intra-prediction
+struct frame {
+  yuv_t *orig;      // Original input image
+  yuv_t *recons;    // Reconstructed image
+  yuv_t *predicted; // Predicted frame from intra-prediction
 
-  dct_t *residuals;   // Difference between original image and predicted frame
+  dct_t *residuals; // Difference between original image and predicted frame
 
   struct macroblock *mbs[COLOR_COMPONENTS];
   int keyframe;
 };
 
-struct c63_common
-{
+struct c63_common {
   int width, height;
   int ypw, yph, upw, uph, vpw, vph;
 
@@ -97,7 +91,7 @@ struct c63_common
 
   int mb_cols, mb_rows;
 
-  uint8_t qp;                         // Quality parameter
+  uint8_t qp; // Quality parameter
 
   int me_search_range;
 
@@ -114,4 +108,4 @@ struct c63_common
   struct entropy_ctx e_ctx;
 };
 
-#endif  /* C63_C63_H_ */
+#endif /* C63_C63_H_ */

@@ -41,128 +41,6 @@ void init_quantdct_constants(const c63_common *cm) {
                      sizeof(cm->quanttbl[V_COMPONENT]));
 }
 
-__device__ __forceinline__ static void dct_2d_device(const float *in,
-                                                     float *out) {
-
-  for (int v = 0; v < 8; v++) {
-    for (int u = 0; u < 8; u++) {
-      /* Compute the DCT */
-      float dct = 0;
-      for (int y = 0; y < 8; y++) {
-        for (int x = 0; x < 8; x++) {
-          dct += in[y * 8 + x] * c_dctlookup[x][u] * c_dctlookup[y][v];
-        }
-      }
-
-      out[v * 8 + u] = dct;
-    }
-  }
-}
-
-// Same as dct_2d, but reverse lookup, same optimization could work
-__device__ __forceinline__ static void idct_2d_device(const float *in,
-                                                      float *out) {
-  // Loop through all elements of the block
-  for (int v = 0; v < 8; v++) {
-    for (int u = 0; u < 8; u++) {
-      /* Compute the iDCT */
-      float dct = 0;
-      for (int y = 0; y < 8; y++) {
-        for (int x = 0; x < 8; x++) {
-          dct += in[y * 8 + x] * c_dctlookup[u][x] * c_dctlookup[v][y];
-        }
-      }
-
-      out[v * 8 + u] = dct;
-    }
-  }
-}
-
-__device__ __forceinline__ static void scale_block_device(float *in_data,
-                                                          float *out_data) {
-  int u, v;
-
-  for (v = 0; v < 8; ++v) {
-    for (u = 0; u < 8; ++u) {
-      float a1 = !u ? ISQRT2 : 1.0f;
-      float a2 = !v ? ISQRT2 : 1.0f;
-
-      out_data[v * 8 + u] = in_data[v * 8 + u] * a1 * a2;
-    }
-  }
-}
-
-__device__ __forceinline__ static void
-quantize_block_device(float *in_data, float *out_data,
-                      const uint8_t *quant_tbl) {
-  int zigzag;
-
-  for (zigzag = 0; zigzag < 64; ++zigzag) {
-    uint8_t u = c_zigzag_U[zigzag];
-    uint8_t v = c_zigzag_V[zigzag];
-
-    float dct = in_data[v * 8 + u];
-
-    /* Zig-zag and quantize */
-    out_data[zigzag] = (float)round((dct / 4.0) / quant_tbl[zigzag]);
-  }
-}
-
-__device__ __forceinline__ static void
-dequantize_block_device(float *in_data, float *out_data,
-                        const uint8_t *quant_tbl) {
-  int zigzag;
-
-  for (zigzag = 0; zigzag < 64; ++zigzag) {
-    uint8_t u = c_zigzag_U[zigzag];
-    uint8_t v = c_zigzag_V[zigzag];
-
-    float dct = in_data[zigzag];
-
-    out_data[v * 8 + u] = (float)round((dct * quant_tbl[zigzag]) / 4.0);
-  }
-}
-
-__device__ __forceinline__ static void
-dct_quant_block_8x8_device(int16_t *in_data, int16_t *out_data,
-                           const uint8_t *quant_tbl) {
-
-  float mb[64], mb2[64];
-#pragma unroll
-  for (int i = 0; i < 64; ++i) {
-    mb[i] = (float)in_data[i];
-  }
-
-  dct_2d_device(mb, mb2);
-
-  scale_block_device(mb2, mb);
-
-  quantize_block_device(mb, mb2, quant_tbl);
-#pragma unroll
-  for (int i = 0; i < 64; ++i) {
-    out_data[i] = (int16_t)mb2[i];
-  }
-}
-
-__device__ __forceinline__ static void
-dequant_idct_block_8x8_device(const int16_t *in_data, int16_t *out_data,
-                              const uint8_t *quant_tbl) {
-  float mb[64], mb2[64];
-
-#pragma unroll
-  for (int i = 0; i < 64; ++i) {
-    mb[i] = (float)in_data[i];
-  }
-
-  dequantize_block_device(mb, mb2, quant_tbl);
-  scale_block_device(mb2, mb);
-  idct_2d_device(mb, mb2);
-#pragma unroll
-  for (int i = 0; i < 64; ++i) {
-    out_data[i] = (int16_t)mb2[i];
-  }
-}
-
 template <int C>
 __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
                                        const uint8_t *__restrict__ prediction,
@@ -221,7 +99,9 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
   int out_u0 = p0 & 7;
   int out_v0 = p0 >> 3;
   float idct0 = 0.0f;
+#pragma unroll
   for (int y = 0; y < 8; ++y) {
+#pragma unroll
     for (int x = 0; x < 8; ++x) {
       idct0 += warp_coeff[y * 8 + x] * c_dctlookup[out_u0][x] *
                c_dctlookup[out_v0][y];
@@ -238,7 +118,9 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
   int out_u1 = p1 & 7;
   int out_v1 = p1 >> 3;
   float idct1 = 0.0f;
+#pragma unroll
   for (int y = 0; y < 8; ++y) {
+#pragma unroll
     for (int x = 0; x < 8; ++x) {
       idct1 += warp_coeff[y * 8 + x] * c_dctlookup[out_u1][x] *
                c_dctlookup[out_v1][y];
@@ -306,7 +188,9 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   uint8_t coeff_u0 = c_zigzag_U[z0];
   uint8_t coeff_v0 = c_zigzag_V[z0];
   float dct0 = 0.0f;
+#pragma unroll
   for (int y = 0; y < 8; ++y) {
+#pragma unroll
     for (int x = 0; x < 8; ++x) {
       dct0 += warp_block[y * 8 + x] * c_dctlookup[x][coeff_u0] *
               c_dctlookup[y][coeff_v0];
@@ -320,7 +204,9 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   uint8_t coeff_u1 = c_zigzag_U[z1];
   uint8_t coeff_v1 = c_zigzag_V[z1];
   float dct1 = 0.0f;
+#pragma unroll
   for (int y = 0; y < 8; ++y) {
+#pragma unroll
     for (int x = 0; x < 8; ++x) {
       dct1 += warp_block[y * 8 + x] * c_dctlookup[x][coeff_u1] *
               c_dctlookup[y][coeff_v1];
