@@ -46,9 +46,7 @@ add_library(c63
 	           tables.cu tables.h
 	           io.cu io.h
 	           common.cu common.h
-	           me.cu me.h
              quantdct_device.cu quantdct_device.h
-             quantdct.cu quantdct.h
              me_device.cu me_device.h
              c63_inter_gpu_pipeline.cu c63_inter_gpu_pipeline.h)
 
@@ -56,13 +54,4 @@ add_executable(c63enc
                c63enc.cu c63.h
 	       c63_write.cu c63_write.h)
 target_link_libraries(c63enc c63 m nvToolsExt)
-
-add_executable(c63dec
-               c63dec.cu c63.h)
-target_link_libraries(c63dec c63 m)
-
-add_executable(c63pred
-               c63dec.cu c63.h)
-target_link_libraries(c63pred c63 m)
-target_compile_options(c63pred PUBLIC -DC63_PRED)
 
