@@ -53,9 +53,7 @@ static void free_input_image(yuv_t *image) {
 // This function reads the YUV file into memory, memory has already been
 // allocated (See helpers above)
 /* Read planar YUV frames with 4:2:0 chroma sub-sampling */
-static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image,
-                         cudaStream_t stream_y, cudaStream_t stream_u,
-                         cudaStream_t stream_v) {
+static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image) {
   size_t len = 0;
   size_t y_bytes =
       cm->padw[Y_COMPONENT] * cm->padh[Y_COMPONENT] * sizeof(uint8_t);
@@ -276,7 +274,7 @@ int main(int argc, char **argv) {
   cm->frames_since_keyframe = 0;
 
   while (1) {
-    if (!read_yuv_into(infile, cm, image, stream_y, stream_u, stream_v)) {
+    if (!read_yuv_into(infile, cm, image)) {
       break;
     }
 

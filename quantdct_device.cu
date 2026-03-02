@@ -99,12 +99,20 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
   int out_u0 = p0 & 7;
   int out_v0 = p0 >> 3;
   float idct0 = 0.0f;
+
+  int out_u1 = p1 & 7;
+  int out_v1 = p1 >> 3;
+  float idct1 = 0.0f;
+
 #pragma unroll
   for (int y = 0; y < 8; ++y) {
 #pragma unroll
     for (int x = 0; x < 8; ++x) {
       idct0 += warp_coeff[y * 8 + x] * c_dctlookup[out_u0][x] *
                c_dctlookup[out_v0][y];
+
+      idct1 += warp_coeff[y * 8 + x] * c_dctlookup[out_u1][x] *
+               c_dctlookup[out_v1][y];
     }
   }
   int pred_idx0 = pixel_base + out_v0 * (int)width + out_u0;
@@ -115,17 +123,6 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
     tmp0 = 255;
   out_data[pred_idx0] = (uint8_t)tmp0;
 
-  int out_u1 = p1 & 7;
-  int out_v1 = p1 >> 3;
-  float idct1 = 0.0f;
-#pragma unroll
-  for (int y = 0; y < 8; ++y) {
-#pragma unroll
-    for (int x = 0; x < 8; ++x) {
-      idct1 += warp_coeff[y * 8 + x] * c_dctlookup[out_u1][x] *
-               c_dctlookup[out_v1][y];
-    }
-  }
   int pred_idx1 = pixel_base + out_v1 * (int)width + out_u1;
   int16_t tmp1 = (int16_t)idct1 + (int16_t)prediction[pred_idx1];
   if (tmp1 < 0)
@@ -188,12 +185,20 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   uint8_t coeff_u0 = c_zigzag_U[z0];
   uint8_t coeff_v0 = c_zigzag_V[z0];
   float dct0 = 0.0f;
+
+  uint8_t coeff_u1 = c_zigzag_U[z1];
+  uint8_t coeff_v1 = c_zigzag_V[z1];
+  float dct1 = 0.0f;
+
 #pragma unroll
   for (int y = 0; y < 8; ++y) {
 #pragma unroll
     for (int x = 0; x < 8; ++x) {
       dct0 += warp_block[y * 8 + x] * c_dctlookup[x][coeff_u0] *
               c_dctlookup[y][coeff_v0];
+
+      dct1 += warp_block[y * 8 + x] * c_dctlookup[x][coeff_u1] *
+              c_dctlookup[y][coeff_v1];
     }
   }
   float a10 = !coeff_u0 ? ISQRT2 : 1.0f;
@@ -201,17 +206,6 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   float scaled0 = dct0 * a10 * a20;
   out_data[coeff_base + z0] = (int16_t)round((scaled0 / 4.0) / quant_tbl[z0]);
 
-  uint8_t coeff_u1 = c_zigzag_U[z1];
-  uint8_t coeff_v1 = c_zigzag_V[z1];
-  float dct1 = 0.0f;
-#pragma unroll
-  for (int y = 0; y < 8; ++y) {
-#pragma unroll
-    for (int x = 0; x < 8; ++x) {
-      dct1 += warp_block[y * 8 + x] * c_dctlookup[x][coeff_u1] *
-              c_dctlookup[y][coeff_v1];
-    }
-  }
   float a11 = !coeff_u1 ? ISQRT2 : 1.0f;
   float a21 = !coeff_v1 ? ISQRT2 : 1.0f;
   float scaled1 = dct1 * a11 * a21;
@@ -246,8 +240,6 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
   size_t shm_bytes_dct = (size_t)warps_per_block_dct * 64 * sizeof(float);
   size_t shm_bytes_idct = (size_t)warps_per_block_idct * 64 * sizeof(float);
 
-  nvtxRangePushA("dct_idct_inter");
-  nvtxRangePushA("dct_quantize");
   dct_quantize_kernel<Y_COMPONENT>
       <<<gridY_dct, tpb_dct, shm_bytes_dct, stream_y>>>(a.inY, a.predY, a.wY,
                                                         a.hY, a.resY);
@@ -260,8 +252,6 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
       <<<gridV_dct, tpb_dct, shm_bytes_dct, stream_v>>>(a.inV, a.predV, a.wV,
                                                         a.hV, a.resV);
 
-  nvtxRangePop();
-  nvtxRangePushA("dequantize_idct");
   dequantize_idct_kernel<Y_COMPONENT>
       <<<gridY_idct, tpb_idct, shm_bytes_idct, stream_y>>>(a.resY, a.predY,
                                                            a.wY, a.hY, a.recY);
@@ -273,11 +263,10 @@ void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,
   dequantize_idct_kernel<V_COMPONENT>
       <<<gridV_idct, tpb_idct, shm_bytes_idct, stream_v>>>(a.resV, a.predV,
                                                            a.wV, a.hV, a.recV);
-  nvtxRangePop();
-
-  nvtxRangePop();
 }
 
+// Create a snapshot of the necessary arguments for the DCT/Quant/DeQuant/IDCT
+// pipeline
 quant_inter_args create_quant_inter_args(struct c63_common *cm, yuv_t *image) {
   quant_inter_args a{};
 
