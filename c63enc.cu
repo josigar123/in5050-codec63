@@ -29,7 +29,7 @@ static uint32_t height;
 extern int optind;
 extern char *optarg;
 
-// Allocates memory for the input image
+// Allocates memory for the input image with pinned host memory
 static yuv_t *alloc_input_image(struct c63_common *cm) {
   yuv_t *image;
   cudaMallocHost(&image, sizeof(yuv_t));
@@ -64,6 +64,7 @@ static int read_yuv_into(FILE *file, struct c63_common *cm, yuv_t *image,
   size_t v_bytes =
       cm->padw[V_COMPONENT] * cm->padh[V_COMPONENT] * sizeof(uint8_t);
 
+  // memset channels with padding
   cudaMemset(image->Y, 0, y_bytes);
   cudaMemset(image->U, 0, u_bytes);
   cudaMemset(image->V, 0, v_bytes);
@@ -110,6 +111,7 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
   }
 
   // Take a snapshot of arguments for passing to the pipeline and work reset
+  // This is to avoid segfaults on multiple accesses of cm and image
   reset_frame_work_args a =
       create_reset_frame_work_args(cm, stream_y, stream_u, stream_v);
 
@@ -122,15 +124,13 @@ static void c63_encode_image(struct c63_common *cm, yuv_t *image,
   // Run the ME/MC and DCT/Quant/DeQuant/IDCT pipeline, the test for chceking if
   // we have a keyframe is inside the pipeline
   c63_inter_gpu_pipeline(q, m, stream_y, stream_u, stream_v);
-
-  /* Function dump_image(), found in common.c, can be used here to check if the
-   prediction is correct */
 }
 
 struct c63_common *init_c63_enc(int width, int height) {
   int i;
 
   c63_common *cm;
+  // Allocate cm in managed memory and write zeros to it
   cudaMallocManaged(&cm, sizeof(struct c63_common));
   cudaMemset(cm, 0, sizeof(struct c63_common));
 
@@ -169,11 +169,6 @@ struct c63_common *init_c63_enc(int width, int height) {
   init_quantdct_constants(cm);
 
   return cm;
-}
-
-void free_c63_enc(struct c63_common *cm) {
-  destroy_frame(cm->curframe);
-  cudaFree(cm);
 }
 
 static void print_help() {
@@ -263,7 +258,7 @@ int main(int argc, char **argv) {
   cudaStreamCreate(&stream_u);
   cudaStreamCreate(&stream_v);
 
-  // Here we allocate memory for the input image once, with managed memory
+  // Here we allocate memory for the input image once, with pinned host memory
   image = alloc_input_image(cm);
 
   // Here we create two frames, one for the reference frame and one for the
@@ -273,7 +268,8 @@ int main(int argc, char **argv) {
   struct frame *frame_b = create_frame(cm, image);
 
   // Here we set the reference frame and current frame, and initialize the frame
-  // number and frames since keyframe
+  // number and frames since keyframe, we ping-pong between the two frames so
+  // only pointers are swapped before encoding
   cm->refframe = frame_a;
   cm->curframe = frame_b;
   cm->framenum = 0;
@@ -287,13 +283,12 @@ int main(int argc, char **argv) {
     printf("Encoding frame %d, ", numframes);
     c63_encode_image(cm, image, stream_y, stream_u, stream_v);
 
+    // Sync before we write
     cudaStreamSynchronize(stream_y);
     cudaStreamSynchronize(stream_u);
     cudaStreamSynchronize(stream_v);
 
-    nvtxRangePush("write_frame");
     write_frame(cm);
-    nvtxRangePop();
 
     printf("Done!\n");
 
@@ -318,7 +313,6 @@ int main(int argc, char **argv) {
   destroy_frame(frame_b);
   free(cm->e_ctx.buf);
   cudaFree(cm);
-  // free_c63_enc(cm);
   fclose(outfile);
   fclose(infile);
 
