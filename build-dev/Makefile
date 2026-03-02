@@ -111,19 +111,6 @@ depend:
 .PHONY : depend
 
 #=============================================================================
-# Target rules for targets named c63pred
-
-# Build rule for target.
-c63pred: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 c63pred
-.PHONY : c63pred
-
-# fast build rule for target.
-c63pred/fast:
-	$(MAKE) -f CMakeFiles/c63pred.dir/build.make CMakeFiles/c63pred.dir/build
-.PHONY : c63pred/fast
-
-#=============================================================================
 # Target rules for targets named c63enc
 
 # Build rule for target.
@@ -137,19 +124,6 @@ c63enc/fast:
 .PHONY : c63enc/fast
 
 #=============================================================================
-# Target rules for targets named c63dec
-
-# Build rule for target.
-c63dec: cmake_check_build_system
-	$(MAKE) -f CMakeFiles/Makefile2 c63dec
-.PHONY : c63dec
-
-# fast build rule for target.
-c63dec/fast:
-	$(MAKE) -f CMakeFiles/c63dec.dir/build.make CMakeFiles/c63dec.dir/build
-.PHONY : c63dec/fast
-
-#=============================================================================
 # Target rules for targets named c63
 
 # Build rule for target.
@@ -161,6 +135,33 @@ c63: cmake_check_build_system
 c63/fast:
 	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/build
 .PHONY : c63/fast
+
+c63_inter_gpu_pipeline.o: c63_inter_gpu_pipeline.cu.o
+
+.PHONY : c63_inter_gpu_pipeline.o
+
+# target to build an object file
+c63_inter_gpu_pipeline.cu.o:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/c63_inter_gpu_pipeline.cu.o
+.PHONY : c63_inter_gpu_pipeline.cu.o
+
+c63_inter_gpu_pipeline.i: c63_inter_gpu_pipeline.cu.i
+
+.PHONY : c63_inter_gpu_pipeline.i
+
+# target to preprocess a source file
+c63_inter_gpu_pipeline.cu.i:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/c63_inter_gpu_pipeline.cu.i
+.PHONY : c63_inter_gpu_pipeline.cu.i
+
+c63_inter_gpu_pipeline.s: c63_inter_gpu_pipeline.cu.s
+
+.PHONY : c63_inter_gpu_pipeline.s
+
+# target to generate assembly for a file
+c63_inter_gpu_pipeline.cu.s:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/c63_inter_gpu_pipeline.cu.s
+.PHONY : c63_inter_gpu_pipeline.cu.s
 
 c63_write.o: c63_write.cu.o
 
@@ -188,36 +189,6 @@ c63_write.s: c63_write.cu.s
 c63_write.cu.s:
 	$(MAKE) -f CMakeFiles/c63enc.dir/build.make CMakeFiles/c63enc.dir/c63_write.cu.s
 .PHONY : c63_write.cu.s
-
-c63dec.o: c63dec.cu.o
-
-.PHONY : c63dec.o
-
-# target to build an object file
-c63dec.cu.o:
-	$(MAKE) -f CMakeFiles/c63pred.dir/build.make CMakeFiles/c63pred.dir/c63dec.cu.o
-	$(MAKE) -f CMakeFiles/c63dec.dir/build.make CMakeFiles/c63dec.dir/c63dec.cu.o
-.PHONY : c63dec.cu.o
-
-c63dec.i: c63dec.cu.i
-
-.PHONY : c63dec.i
-
-# target to preprocess a source file
-c63dec.cu.i:
-	$(MAKE) -f CMakeFiles/c63pred.dir/build.make CMakeFiles/c63pred.dir/c63dec.cu.i
-	$(MAKE) -f CMakeFiles/c63dec.dir/build.make CMakeFiles/c63dec.dir/c63dec.cu.i
-.PHONY : c63dec.cu.i
-
-c63dec.s: c63dec.cu.s
-
-.PHONY : c63dec.s
-
-# target to generate assembly for a file
-c63dec.cu.s:
-	$(MAKE) -f CMakeFiles/c63pred.dir/build.make CMakeFiles/c63pred.dir/c63dec.cu.s
-	$(MAKE) -f CMakeFiles/c63dec.dir/build.make CMakeFiles/c63dec.dir/c63dec.cu.s
-.PHONY : c63dec.cu.s
 
 c63enc.o: c63enc.cu.o
 
@@ -300,59 +271,59 @@ io.cu.s:
 	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/io.cu.s
 .PHONY : io.cu.s
 
-me.o: me.cu.o
+me_device.o: me_device.cu.o
 
-.PHONY : me.o
-
-# target to build an object file
-me.cu.o:
-	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/me.cu.o
-.PHONY : me.cu.o
-
-me.i: me.cu.i
-
-.PHONY : me.i
-
-# target to preprocess a source file
-me.cu.i:
-	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/me.cu.i
-.PHONY : me.cu.i
-
-me.s: me.cu.s
-
-.PHONY : me.s
-
-# target to generate assembly for a file
-me.cu.s:
-	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/me.cu.s
-.PHONY : me.cu.s
-
-quantdct.o: quantdct.cu.o
-
-.PHONY : quantdct.o
+.PHONY : me_device.o
 
 # target to build an object file
-quantdct.cu.o:
-	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/quantdct.cu.o
-.PHONY : quantdct.cu.o
+me_device.cu.o:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/me_device.cu.o
+.PHONY : me_device.cu.o
 
-quantdct.i: quantdct.cu.i
+me_device.i: me_device.cu.i
 
-.PHONY : quantdct.i
+.PHONY : me_device.i
 
 # target to preprocess a source file
-quantdct.cu.i:
-	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/quantdct.cu.i
-.PHONY : quantdct.cu.i
+me_device.cu.i:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/me_device.cu.i
+.PHONY : me_device.cu.i
 
-quantdct.s: quantdct.cu.s
+me_device.s: me_device.cu.s
 
-.PHONY : quantdct.s
+.PHONY : me_device.s
 
 # target to generate assembly for a file
-quantdct.cu.s:
-	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/quantdct.cu.s
-.PHONY : quantdct.cu.s
+me_device.cu.s:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/me_device.cu.s
+.PHONY : me_device.cu.s
+
+quantdct_device.o: quantdct_device.cu.o
+
+.PHONY : quantdct_device.o
+
+# target to build an object file
+quantdct_device.cu.o:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/quantdct_device.cu.o
+.PHONY : quantdct_device.cu.o
+
+quantdct_device.i: quantdct_device.cu.i
+
+.PHONY : quantdct_device.i
+
+# target to preprocess a source file
+quantdct_device.cu.i:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/quantdct_device.cu.i
+.PHONY : quantdct_device.cu.i
+
+quantdct_device.s: quantdct_device.cu.s
+
+.PHONY : quantdct_device.s
+
+# target to generate assembly for a file
+quantdct_device.cu.s:
+	$(MAKE) -f CMakeFiles/c63.dir/build.make CMakeFiles/c63.dir/quantdct_device.cu.s
+.PHONY : quantdct_device.cu.s
 
 tables.o: tables.cu.o
 
@@ -389,16 +360,14 @@ help:
 	@echo "... depend"
 	@echo "... rebuild_cache"
 	@echo "... edit_cache"
-	@echo "... c63pred"
 	@echo "... c63enc"
-	@echo "... c63dec"
 	@echo "... c63"
+	@echo "... c63_inter_gpu_pipeline.o"
+	@echo "... c63_inter_gpu_pipeline.i"
+	@echo "... c63_inter_gpu_pipeline.s"
 	@echo "... c63_write.o"
 	@echo "... c63_write.i"
 	@echo "... c63_write.s"
-	@echo "... c63dec.o"
-	@echo "... c63dec.i"
-	@echo "... c63dec.s"
 	@echo "... c63enc.o"
 	@echo "... c63enc.i"
 	@echo "... c63enc.s"
@@ -408,12 +377,12 @@ help:
 	@echo "... io.o"
 	@echo "... io.i"
 	@echo "... io.s"
-	@echo "... me.o"
-	@echo "... me.i"
-	@echo "... me.s"
-	@echo "... quantdct.o"
-	@echo "... quantdct.i"
-	@echo "... quantdct.s"
+	@echo "... me_device.o"
+	@echo "... me_device.i"
+	@echo "... me_device.s"
+	@echo "... quantdct_device.o"
+	@echo "... quantdct_device.i"
+	@echo "... quantdct_device.s"
 	@echo "... tables.o"
 	@echo "... tables.i"
 	@echo "... tables.s"
