@@ -82,8 +82,9 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
       warp_id * tile_w *
           tile_w; // Pointer to the start of the search window for this warp
 
-  // Load ref tile into shared mem where warp_tile is the pointer base for where
-  // to load the ref pixels for this warp
+// Load ref tile into shared mem where warp_tile is the pointer base for where
+// to load the ref pixels for this warp
+#pragma unroll
   for (int i = lane; i < tile_w * tile_w; i += 32) {
     int tx = i % tile_w; // What column am I in this pixel? Same as i % tile_w
     int ty = i / tile_w; // What row am I in this pixel? Same as i / tile_w
@@ -158,6 +159,7 @@ __global__ static void mc_block_8x8_kernel(uint8_t *predicted,
                                            const uint8_t *ref,
                                            const struct macroblock *mbs,
                                            int mb_cols, int mb_rows, int w) {
+
   int lane =
       threadIdx.x & 31; // What lane am I in this warp? Same as threadIdx.x % 32
   int warp_id = threadIdx.x >>
