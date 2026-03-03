@@ -13,6 +13,9 @@
 
 int frequencies[2][12];
 
+// Writes multiple bytes at once to the internal buffer of the entropy context
+// using memcpy. Used for bulk data like quantization tables (64 bytes) and
+// Huffman table specifications. More efficient than calling put_byte_buf() repeatedly.
 static inline void put_bytes_buf_ctx(struct entropy_ctx *c, const void *data,
                                      size_t len) {
   if (c->buf_pos + len > c->buf_capacity) {
@@ -30,11 +33,16 @@ static void write_SOI(struct c63_common *cm) {
   put_byte_buf(&cm->e_ctx, JPEG_SOI_MARKER);
 }
 
-/* Define Quatization Tables (DQT) marker, contains the tables as payload. */
+/* Define Quatization Tables (DQT) marker, contains the tables as payload. 
+ * We write the DQT segment to the output buffer, including quantization tables for Y, U, and V components.
+ * The DQT segment starts with the marker, followed by the length of the segment, and then the quantization tables for each color component. 
+ * Each table is preceded by a byte indicating the component it belongs to (Y=0, U=1, V=2).
+ */
 static void write_DQT(struct c63_common *cm) {
   int16_t size = 2 + (3 * 64 + 1);
 
-  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  /* DQT marker */
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER); 
   put_byte_buf(&cm->e_ctx, JPEG_DQT_MARKER);
 
   /* Length of segment */
@@ -58,7 +66,8 @@ static void write_DQT(struct c63_common *cm) {
 static void write_SOF0(struct c63_common *cm) {
   int16_t size = 8 + 3 * COLOR_COMPONENTS + 1;
 
-  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER);
+  /* SOF0 marker */
+  put_byte_buf(&cm->e_ctx, JPEG_DEF_MARKER); 
   put_byte_buf(&cm->e_ctx, JPEG_SOF_MARKER);
 
   /* Lenght of segment */
@@ -69,10 +78,10 @@ static void write_SOF0(struct c63_common *cm) {
   put_byte_buf(&cm->e_ctx, 8);
 
   /* Width and height */
-  put_byte_buf(&cm->e_ctx, cm->height >> 8);
-  put_byte_buf(&cm->e_ctx, cm->height & 0xff);
-  put_byte_buf(&cm->e_ctx, cm->width >> 8);
-  put_byte_buf(&cm->e_ctx, cm->width & 0xff);
+  put_byte_buf(&cm->e_ctx, cm->height >> 8);  
+  put_byte_buf(&cm->e_ctx, cm->height & 0xff); 
+  put_byte_buf(&cm->e_ctx, cm->width >> 8); 
+  put_byte_buf(&cm->e_ctx, cm->width & 0xff); 
 
   put_byte_buf(&cm->e_ctx, COLOR_COMPONENTS);
 
