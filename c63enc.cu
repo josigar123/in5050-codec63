@@ -13,7 +13,6 @@
 #include "c63_inter_gpu_pipeline.h"
 #include "c63_write.h"
 #include "common.h"
-#include "nvtx3/nvToolsExt.h"
 #include "quantdct_device.h"
 #include "tables.h"
 
@@ -285,7 +284,6 @@ int main(int argc, char **argv) {
     cudaStreamSynchronize(stream_y);
     cudaStreamSynchronize(stream_u);
     cudaStreamSynchronize(stream_v);
-
 
     /* Write the encoded frame to the output file, this will flush the internal
      * buffer of the entropy context and write to file. */

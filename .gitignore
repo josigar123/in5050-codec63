@@ -10,3 +10,12 @@ c63pred
 # data files
 *.yuv
 *.c63
+i
+
+# garbage
+.*
+
+# build
+/build*
+/build-*
+

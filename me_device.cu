@@ -6,9 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <cuda_runtime.h>
-#include <nvtx3/nvToolsExt.h>
-
 #include "me_device.h"
 
 /* Motion estimation for 8x8 block */
@@ -16,11 +13,11 @@
   We take in all necessary parameters so we dont dereference directly from cm as
   that will cause segfaults upon launching kernels.
 */
-__global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
-                                           const uint8_t *__restrict__ ref,
-                                           struct macroblock *__restrict__ mbs,
-                                           int mb_cols, int mb_rows, int w,
-                                           int h, int range) {
+__global__ static void
+motion_estimation_kernel(const uint8_t *__restrict__ orig,
+                         const uint8_t *__restrict__ ref,
+                         struct macroblock *__restrict__ mbs, int mb_cols,
+                         int mb_rows, int w, int h, int range) {
 
   // A tile in shared memory holding the search window, allocated by the kernel
   // launch params
@@ -155,10 +152,11 @@ __global__ static void me_block_8x8_kernel(const uint8_t *__restrict__ orig,
   }
 }
 
-__global__ static void mc_block_8x8_kernel(uint8_t *predicted,
-                                           const uint8_t *ref,
-                                           const struct macroblock *mbs,
-                                           int mb_cols, int mb_rows, int w) {
+__global__ static void motion_compensation_kernel(uint8_t *predicted,
+                                                  const uint8_t *ref,
+                                                  const struct macroblock *mbs,
+                                                  int mb_cols, int mb_rows,
+                                                  int w) {
 
   int lane =
       threadIdx.x & 31; // What lane am I in this warp? Same as threadIdx.x % 32
@@ -233,26 +231,26 @@ void launch_motion_inter(const motion_inter_args &a, cudaStream_t stream_y,
   size_t shm_C = warps_per_block * tile_w_C * tile_w_C * sizeof(uint8_t);
 
   // ME
-  me_block_8x8_kernel<<<blocks_Y, tpb, shm_Y, stream_y>>>(
+  motion_estimation_kernel<<<blocks_Y, tpb, shm_Y, stream_y>>>(
       a.orig_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y, a.h_Y,
       a.range_Y);
 
-  me_block_8x8_kernel<<<blocks_C, tpb, shm_C, stream_u>>>(
+  motion_estimation_kernel<<<blocks_C, tpb, shm_C, stream_u>>>(
       a.orig_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U, a.h_U,
       a.range_C);
 
-  me_block_8x8_kernel<<<blocks_C, tpb, shm_C, stream_v>>>(
+  motion_estimation_kernel<<<blocks_C, tpb, shm_C, stream_v>>>(
       a.orig_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V, a.h_V,
       a.range_C);
 
   // MC
-  mc_block_8x8_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
+  motion_compensation_kernel<<<blocks_Y, tpb, 0, stream_y>>>(
       a.pred_Y, a.recons_Y, a.mbs_Y, a.mb_cols_Y, a.mb_rows_Y, a.w_Y);
 
-  mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_u>>>(
+  motion_compensation_kernel<<<blocks_C, tpb, 0, stream_u>>>(
       a.pred_U, a.recons_U, a.mbs_U, a.mb_cols_C, a.mb_rows_C, a.w_U);
 
-  mc_block_8x8_kernel<<<blocks_C, tpb, 0, stream_v>>>(
+  motion_compensation_kernel<<<blocks_C, tpb, 0, stream_v>>>(
       a.pred_V, a.recons_V, a.mbs_V, a.mb_cols_C, a.mb_rows_C, a.w_V);
 }
 

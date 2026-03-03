@@ -1,7 +1,6 @@
 #ifndef C63_IO_H_
 #define C63_IO_H_
 
-#include <inttypes.h>
 #include <stdio.h>
 
 #include "c63.h"
@@ -23,6 +22,6 @@ void put_byte_buf(struct entropy_ctx *c, uint8_t b);
 
 void flush_frame_to_file(struct entropy_ctx *c);
 
-void put_bytes(FILE *fp, const void* data, unsigned int len);
+void put_bytes(FILE *fp, const void *data, unsigned int len);
 
-#endif  /* C63_IO_H_ */
+#endif /* C63_IO_H_ */

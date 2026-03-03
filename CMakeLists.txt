@@ -37,11 +37,6 @@ else()
   message(FATAL "Not compiling with an gcc")
 endif()
 
-# This march option works with GCC but apparently not with the CUDA compiler on Tegra
-# if(EXISTS "/etc/nv_tegra_release")
-#     add_compile_options(-march=armv8.2-a)
-# endif()
-
 add_library(c63
             STATIC 
 	           tables.cu tables.h
@@ -54,5 +49,5 @@ add_library(c63
 add_executable(c63enc
                c63enc.cu c63.h
 	       c63_write.cu c63_write.h)
-target_link_libraries(c63enc c63 m nvToolsExt)
+target_link_libraries(c63enc c63 m)
 

@@ -1,2 +1,0 @@
-/usr/bin/ar qc libc63.a  CMakeFiles/c63.dir/quantdct.cu.o CMakeFiles/c63.dir/tables.cu.o CMakeFiles/c63.dir/io.cu.o CMakeFiles/c63.dir/common.cu.o CMakeFiles/c63.dir/me.cu.o
-/usr/bin/ranlib libc63.a

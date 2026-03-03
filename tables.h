@@ -1,8 +1,6 @@
 #ifndef C63_TABLES_H_
 #define C63_TABLES_H_
 
-#include <inttypes.h>
-
 extern uint8_t yquanttbl_def[64] __attribute__((aligned(16)));
 extern uint8_t uvquanttbl_def[64] __attribute__((aligned(16)));
 extern uint16_t DCVLC[2][12];

@@ -5,24 +5,29 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <nvtx3/nvToolsExt.h>
-
 #include "quantdct_device.h"
 
-#define ISQRT2 0.70710678118654f // 1/sqrt(2), used to scale the DC (zero-frequency) terms in the DCT
+#define ISQRT2                                                                 \
+  0.70710678118654f // 1/sqrt(2), used to scale the DC (zero-frequency) terms in
+                    // the DCT
 
-// These tables live in constant memory, which is fast read-only memory cached and shared across all threads.
-// Ideal for lookup tables that every thread reads.
-__constant__ uint8_t c_zigzag_U[64];  // Column coordinates for each DCT coefficient in zigzag scan order
-__constant__ uint8_t c_zigzag_V[64];  // Row coordinates for each DCT coefficient in zigzag scan order
-__constant__ float c_dctlookup[8][8]; // Pre-computed cosine values used in the DCT/IDCT formula
+// These tables live in constant memory, which is fast read-only memory cached
+// and shared across all threads. Ideal for lookup tables that every thread
+// reads.
+__constant__ uint8_t c_zigzag_U[64]; // Column coordinates for each DCT
+                                     // coefficient in zigzag scan order
+__constant__ uint8_t c_zigzag_V[64]; // Row coordinates for each DCT coefficient
+                                     // in zigzag scan order
+__constant__ float c_dctlookup[8][8]; // Pre-computed cosine values used in the
+                                      // DCT/IDCT formula
 
 __constant__ uint8_t c_quant_Y[64]; // Quantization table for Y (luma)
 __constant__ uint8_t c_quant_U[64]; // Quantization table for U (chroma)
 __constant__ uint8_t c_quant_V[64]; // Quantization table for V (chroma)
 
-// Returns the right quantization table for the given color component (Y, U, or V).
-// Using a template means the choice is made at compile time, not at runtime.
+// Returns the right quantization table for the given color component (Y, U, or
+// V). Using a template means the choice is made at compile time, not at
+// runtime.
 template <int C> __device__ __forceinline__ const uint8_t *get_quant_tbl() {
   return (C == Y_COMPONENT)   ? c_quant_Y
          : (C == U_COMPONENT) ? c_quant_U
@@ -44,8 +49,9 @@ void init_quantdct_constants(const c63_common *cm) {
                      sizeof(cm->quanttbl[V_COMPONENT]));
 }
 
-// Reverses the DCT+Quantize step: dequantizes the coefficients and applies IDCT to reconstruct pixels.
-// One warp per 8x8 block; each lane handles two coefficients (z0 and z1 = z0+32).
+// Reverses the DCT+Quantize step: dequantizes the coefficients and applies IDCT
+// to reconstruct pixels. One warp per 8x8 block; each lane handles two
+// coefficients (z0 and z1 = z0+32).
 template <int C>
 __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
                                        const uint8_t *__restrict__ prediction,
@@ -74,21 +80,27 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
   int px = bx * 8; // Top-left x pixel of this block
   int py = by * 8; // Top-left y pixel of this block
   int pixel_base = py * (int)width + px;
-  int coeff_base = by * ((int)width * 8) + bx * 64; // Offset into the coefficient array for this block
+  int coeff_base = by * ((int)width * 8) +
+                   bx * 64; // Offset into the coefficient array for this block
 
-  float *warp_coeff = shared + warp_id * 64; // Each warp gets its own 64-float slice of shared memory
+  float *warp_coeff =
+      shared +
+      warp_id * 64; // Each warp gets its own 64-float slice of shared memory
   const uint8_t *quant_tbl = get_quant_tbl<C>();
 
-  // Each lane handles two zigzag positions: z0 and z1, covering all 64 coefficients across the 32 lanes
+  // Each lane handles two zigzag positions: z0 and z1, covering all 64
+  // coefficients across the 32 lanes
   int z0 = lane;
   int z1 = lane + 32;
 
-  // Dequantize coefficient z0 and write to shared memory in 2D frequency layout (v*8 + u)
+  // Dequantize coefficient z0 and write to shared memory in 2D frequency layout
+  // (v*8 + u)
   uint8_t u0 = c_zigzag_U[z0];
   uint8_t v0 = c_zigzag_V[z0];
   float dct0 = (float)in_data[coeff_base + z0];
   float deq0 = (float)round((dct0 * quant_tbl[z0]) / 4.0); // Undo quantization
-  float a10 = !u0 ? ISQRT2 : 1.0f; // Apply DC scaling if this is the zero-frequency term
+  float a10 = !u0 ? ISQRT2
+                  : 1.0f; // Apply DC scaling if this is the zero-frequency term
   float a20 = !v0 ? ISQRT2 : 1.0f;
   warp_coeff[v0 * 8 + u0] = deq0 * a10 * a20;
 
@@ -107,7 +119,7 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
   int p0 = lane;
   int p1 = lane + 32;
 
-  int out_u0 = p0 & 7; // Column of pixel p0 in the 8x8 block
+  int out_u0 = p0 & 7;  // Column of pixel p0 in the 8x8 block
   int out_v0 = p0 >> 3; // Row of pixel p0
   float idct0 = 0.0f;
 
@@ -128,7 +140,8 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
     }
   }
 
-  // Add prediction back (residual + prediction = reconstructed pixel), clamp to [0, 255]
+  // Add prediction back (residual + prediction = reconstructed pixel), clamp to
+  // [0, 255]
   int pred_idx0 = pixel_base + out_v0 * (int)width + out_u0;
   int16_t tmp0 = (int16_t)idct0 + (int16_t)prediction[pred_idx0];
   if (tmp0 < 0)
@@ -146,10 +159,11 @@ __global__ void dequantize_idct_kernel(const int16_t *__restrict__ in_data,
   out_data[pred_idx1] = (uint8_t)tmp1;
 }
 
-// Computes residuals (current - predicted), applies DCT to convert to frequency domain,
-// then quantizes the coefficients (divides by quant table, killing small high-frequency values).
-// Output is written in zigzag order, ready for entropy coding.
-// One warp per 8x8 block; each lane handles two pixels (p0 and p1 = p0+32).
+// Computes residuals (current - predicted), applies DCT to convert to frequency
+// domain, then quantizes the coefficients (divides by quant table, killing
+// small high-frequency values). Output is written in zigzag order, ready for
+// entropy coding. One warp per 8x8 block; each lane handles two pixels (p0 and
+// p1 = p0+32).
 template <int C>
 __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
                                     uint8_t *__restrict__ prediction,
@@ -177,29 +191,35 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   int px = bx * 8; // Top-left x pixel of this block
   int py = by * 8; // Top-left y pixel of this block
   int pixel_base = py * (int)width + px;
-  int coeff_base = by * ((int)width * 8) + bx * 64; // Offset into the coefficient array for this block
+  int coeff_base = by * ((int)width * 8) +
+                   bx * 64; // Offset into the coefficient array for this block
 
-  float *warp_block = shared + warp_id * 64; // Each warp gets its own 64-float slice of shared memory
+  float *warp_block =
+      shared +
+      warp_id * 64; // Each warp gets its own 64-float slice of shared memory
   const uint8_t *quant_tbl = get_quant_tbl<C>();
 
-  // Each lane handles two pixels: p0 and p1, covering all 64 pixels across the 32 lanes
+  // Each lane handles two pixels: p0 and p1, covering all 64 pixels across the
+  // 32 lanes
   int p0 = lane;
   int p1 = lane + 32;
 
-  // Compute residual (current pixel - predicted pixel) and write to shared memory
+  // Compute residual (current pixel - predicted pixel) and write to shared
+  // memory
   int u0 = p0 & 7;
   int v0 = p0 >> 3;
   int in_idx0 = pixel_base + v0 * (int)width + u0;
-  warp_block[p0] =
-      (float)((int16_t)in_data[in_idx0] - (int16_t)prediction[in_idx0]); // residual for p0
+  warp_block[p0] = (float)((int16_t)in_data[in_idx0] -
+                           (int16_t)prediction[in_idx0]); // residual for p0
 
   int u1 = p1 & 7;
   int v1 = p1 >> 3;
   int in_idx1 = pixel_base + v1 * (int)width + u1;
-  warp_block[p1] =
-      (float)((int16_t)in_data[in_idx1] - (int16_t)prediction[in_idx1]); // residual for p1
+  warp_block[p1] = (float)((int16_t)in_data[in_idx1] -
+                           (int16_t)prediction[in_idx1]); // residual for p1
 
-  __syncwarp(); // Wait for all lanes to finish writing residuals before DCT reads them
+  __syncwarp(); // Wait for all lanes to finish writing residuals before DCT
+                // reads them
 
   // Each lane computes two DCT coefficients in zigzag order
   int z0 = lane;
@@ -227,19 +247,22 @@ __global__ void dct_quantize_kernel(const uint8_t *__restrict__ in_data,
   }
 
   // Apply DC scaling and quantize, then write to global memory
-  float a10 = !coeff_u0 ? ISQRT2 : 1.0f; // Scale if this is the zero-frequency (DC) term
+  float a10 = !coeff_u0 ? ISQRT2
+                        : 1.0f; // Scale if this is the zero-frequency (DC) term
   float a20 = !coeff_v0 ? ISQRT2 : 1.0f;
   float scaled0 = dct0 * a10 * a20;
-  out_data[coeff_base + z0] = (int16_t)round((scaled0 / 4.0) / quant_tbl[z0]); // Quantize
+  out_data[coeff_base + z0] =
+      (int16_t)round((scaled0 / 4.0) / quant_tbl[z0]); // Quantize
 
   float a11 = !coeff_u1 ? ISQRT2 : 1.0f;
   float a21 = !coeff_v1 ? ISQRT2 : 1.0f;
   float scaled1 = dct1 * a11 * a21;
-  out_data[coeff_base + z1] = (int16_t)round((scaled1 / 4.0) / quant_tbl[z1]); // Quantize
+  out_data[coeff_base + z1] =
+      (int16_t)round((scaled1 / 4.0) / quant_tbl[z1]); // Quantize
 }
 
-/* Launches the DCT/Quant/DeQuant/IDCT pipeline for inter-coded frames 
- * Each color component (Y, U, V) is processed in its own CUDA stream 
+/* Launches the DCT/Quant/DeQuant/IDCT pipeline for inter-coded frames
+ * Each color component (Y, U, V) is processed in its own CUDA stream
  * -> concurrent execution and better GPU utilization.
  */
 void launch_quantdct_inter(const quant_inter_args &a, cudaStream_t stream_y,

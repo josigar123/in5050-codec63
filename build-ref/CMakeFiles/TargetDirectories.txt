@@ -1,6 +1,0 @@
-/home/in5050-g03/in5050/home-exam-1/in5050-codec63/build-ref/CMakeFiles/rebuild_cache.dir
-/home/in5050-g03/in5050/home-exam-1/in5050-codec63/build-ref/CMakeFiles/edit_cache.dir
-/home/in5050-g03/in5050/home-exam-1/in5050-codec63/build-ref/CMakeFiles/c63pred.dir
-/home/in5050-g03/in5050/home-exam-1/in5050-codec63/build-ref/CMakeFiles/c63enc.dir
-/home/in5050-g03/in5050/home-exam-1/in5050-codec63/build-ref/CMakeFiles/c63dec.dir
-/home/in5050-g03/in5050/home-exam-1/in5050-codec63/build-ref/CMakeFiles/c63.dir

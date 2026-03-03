@@ -3,7 +3,6 @@
 
 #include "c63.h"
 #include <cuda_runtime.h>
-#include <inttypes.h>
 
 struct reset_frame_work_args {
   uint8_t *predicted_Y;
