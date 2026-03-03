@@ -286,6 +286,9 @@ int main(int argc, char **argv) {
     cudaStreamSynchronize(stream_u);
     cudaStreamSynchronize(stream_v);
 
+
+    /* Write the encoded frame to the output file, this will flush the internal
+     * buffer of the entropy context and write to file. */
     write_frame(cm);
 
     printf("Done!\n");

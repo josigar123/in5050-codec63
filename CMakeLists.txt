@@ -12,6 +12,7 @@ project(Codec63
 # Use the C standard from 2011. No effect on Windows (Visual Studio ignores
 # the standards anyway).
 set(CMAKE_CUDA_STANDARD 11)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -use_fast_math")
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 # Overwrite default -O3 flag for Release mode
@@ -21,8 +22,8 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O1 -fno-tree-vectorize")
 
 # Debug compiles with -g or equivalent for debugging.
 # Change to Release for good speed.
-set(CMAKE_BUILD_TYPE Debug)
-# set(CMAKE_BUILD_TYPE Release)
+#set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 
 #
 # If this is a Tegra or something similar, set our processor subrevision.

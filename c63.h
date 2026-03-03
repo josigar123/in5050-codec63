@@ -58,11 +58,13 @@ struct dct {
 typedef struct yuv yuv_t;
 typedef struct dct dct_t;
 
+// Context for entropy coding, including file pointer and internal buffer for bit-level writing.
+// By defining the buffer, the data stays in managed memory until `flush_frame_to_file()` explicitly writes it to disk.
 struct entropy_ctx {
   FILE *fp;
-  uint8_t *buf;
-  size_t buf_pos;
-  size_t buf_capacity;
+  uint8_t *buf;         // Internal buffer for accumulating encoded data before writing to file
+  size_t buf_pos;       // Current position in the buffer (number of bytes currently stored)
+  size_t buf_capacity;  // Total capacity of the buffer
   unsigned int bit_buffer;
   unsigned int bit_buffer_width;
 };

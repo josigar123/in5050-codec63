@@ -7,6 +7,8 @@
 
 // XXX: Should be moved to a struct with FILE*
 
+// Legacy function to write a single byte to a file, with error handling. 
+// Not used 
 void put_byte(FILE *fp, int byte)
 {
   int status = fputc(byte, fp);
@@ -18,17 +20,25 @@ void put_byte(FILE *fp, int byte)
   }
 }
 
+// Writes a single byte to the internal buffer of the entropy context.
+// Used by put_bits(), flush_bits(), and all write_* header functions
+// to accumulate encoded data before flushing to disk via flush_frame_to_file().
 void put_byte_buf(struct entropy_ctx *c, uint8_t b)
 {
-  if (c->buf_pos >= c->buf_capacity)
+  if (c->buf_pos >= c->buf_capacity)  // As long as the buffer has space, we can write to it. If we exceed capacity, it's a critical error.
   {
     fprintf(stderr, "Output buffer overflow\n");
     exit(EXIT_FAILURE);
   }
 
-  c->buf[c->buf_pos++] = b;
+  c->buf[c->buf_pos++] = b; // Write the byte to the buffer and advance the position.
 }
 
+/**
+ * Flushes the internal buffer of the entropy context to the file. 
+ * This is called after encoding a frame to write all accumulated data to disk at once, 
+ * improving performance by reducing the number of write operations.
+ */ 
 void flush_frame_to_file(struct entropy_ctx *c)
 {
   size_t written = fwrite(c->buf, 1, c->buf_pos, c->fp);
@@ -42,6 +52,7 @@ void flush_frame_to_file(struct entropy_ctx *c)
   c->buf_pos = 0;
 }
 
+// Legacy function to write multiple bytes to a file.
 void put_bytes(FILE *fp, const void* data, unsigned int len)
 {
   size_t n = fwrite(data, 1, (size_t) len, fp);
@@ -53,6 +64,7 @@ void put_bytes(FILE *fp, const void* data, unsigned int len)
   }
 }
 
+// Legacy function to read a single byte from a file.
 uint8_t get_byte(FILE *fp)
 {
   int status = fgetc(fp);
@@ -66,6 +78,7 @@ uint8_t get_byte(FILE *fp)
   return (uint8_t) status;
 }
 
+// Legacy function to read multiple bytes from a file.
 int read_bytes(FILE *fp, void *data, unsigned int sz)
 {
   size_t status = fread(data, 1, (size_t) sz, fp);
@@ -111,6 +124,11 @@ void put_bits(struct entropy_ctx *c, uint16_t bits, uint8_t n)
   }
 }
 
+/**
+ * Reads n bits from the bitBuffer. A call to flush_bits() is needed
+ * in order to write any remaining bits in the buffer before
+ * writing using another function.
+ */
 uint16_t get_bits(struct entropy_ctx *c, uint8_t n)
 {
   uint16_t ret = 0;
